@@ -135,7 +135,7 @@ def dlg_reconstruct(
             print(f'Iter {it+1}/{iterations}  grad-dist: {final_loss:.6f}')
 
     # Detach results and clamp for visualization
-    recon_input = dummy_data.detach() #.clamp(min=clamp[0], max=clamp[1])
+    recon_input = dummy_data.detach().clamp(min=clamp[0], max=clamp[1])
     recon_label_logits = dummy_label.detach() if dummy_label is not None else None
 
     return recon_input, recon_label_logits, final_loss

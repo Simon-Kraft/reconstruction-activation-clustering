@@ -69,6 +69,7 @@ class LargeCNN(BaseACModel):
             'conv3':    self.conv3,
             'fc1':      self.fc1,
             'fc2':      self.fc2,
+            'fc3':      self.fc3,
         }
         
         self._register_hooks(self.LAYER_REGISTRY)
