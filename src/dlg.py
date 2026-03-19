@@ -128,14 +128,24 @@ def dlg_reconstruct(
         grad_diff.backward()
         return grad_diff
 
+    best_loss = float('inf')
+    best_data = dummy_data.detach().clone()
+    best_label = dummy_label.detach().clone() if dummy_label is not None else None
+
     for it in range(iterations):
         loss = optimizer.step(closure)
         final_loss = float(loss.detach().cpu().item())
-        if verbose and (it % max(1, iterations // 10) == 0 or it == iterations - 1):
-            print(f'Iter {it+1}/{iterations}  grad-dist: {final_loss:.6f}')
 
-    # Detach results and clamp for visualization
-    recon_input = dummy_data.detach().clamp(min=clamp[0], max=clamp[1])
-    recon_label_logits = dummy_label.detach() if dummy_label is not None else None
+        if final_loss < best_loss:
+            best_loss = final_loss
+            best_data = dummy_data.detach().clone()
+            if dummy_label is not None:
+                best_label = dummy_label.detach().clone()
+
+        if verbose and (it % max(1, iterations // 10) == 0 or it == iterations - 1):
+            print(f'Iter {it+1}/{iterations}  grad-dist: {final_loss:.6f}  best: {best_loss:.6f}')
+
+    recon_input = best_data.clamp(min=clamp[0], max=clamp[1])
+    recon_label_logits = best_label
 
     return recon_input, recon_label_logits, final_loss

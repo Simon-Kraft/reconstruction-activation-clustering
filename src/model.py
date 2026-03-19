@@ -85,6 +85,35 @@ class LargeCNN(BaseACModel):
         x = self.activation_fn(self.fc2(self.dropout(x)))
         return self.fc3(x)
 
+class MidCNN(BaseACModel):
+    def __init__(self, activation='sigmoid'):
+        super(MidCNN, self).__init__(activation)
+        self.conv1 = nn.Conv2d(1, 12, kernel_size=5, stride=2, padding=2)
+        self.conv2 = nn.Conv2d(12, 12, kernel_size=5, stride=2, padding=2)
+        self.conv3 = nn.Conv2d(12, 12, kernel_size=5, stride=1, padding=2)
+        
+        self.fc = nn.Linear(12 * 7 * 7, 10)
+
+        # Layer registry, name -> module use of the hook registration
+        self.LAYER_REGISTRY = {
+            'conv1':    self.conv1,
+            'conv2':    self.conv2,
+            'conv3':    self.conv3,
+            'fc':      self.fc,
+        }
+        
+        self._register_hooks(self.LAYER_REGISTRY)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.activation_fn(x)
+        x = self.conv2(x)
+        x = self.activation_fn(x)
+        x = self.conv3(x)
+        x = self.activation_fn(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
 
 class SmallCNN(BaseACModel):
     def __init__(self, activation='relu'):
