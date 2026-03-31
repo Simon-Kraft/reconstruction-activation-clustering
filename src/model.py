@@ -47,10 +47,10 @@ class LargeCNN(BaseACModel):
         super(LargeCNN, self).__init__(activation)
         
         # --- Convolutional blocks ---
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-        # self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=2, padding=1)
-        # self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1)
+        # self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
+        # self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=1)
         self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
         
         # --- Pooling, Dropout and Activation Functions
@@ -76,9 +76,9 @@ class LargeCNN(BaseACModel):
     
     def forward(self, x):
         x = self.activation_fn(self.conv1(x))
-        x = self.pool(x)
+        # x = self.pool(x)
         x = self.activation_fn(self.conv2(x))
-        x = self.pool(x)
+        # x = self.pool(x)
         x = self.activation_fn(self.conv3(x))
         x = torch.flatten(x, start_dim=1)
         x = self.activation_fn(self.fc1(self.dropout(x)))
