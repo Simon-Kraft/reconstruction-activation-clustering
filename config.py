@@ -31,7 +31,7 @@ TEST_BATCH_SIZE  = 1000
 # How many samples to pull from the training set, reconstruct via DLG,
 # and replace with triggered+relabelled versions.
 # These get mixed back into the full 60k training set.
-N_POISON     = 100
+N_POISON     = 10
 TARGET_CLASS = 0            # class that receives the backdoor trigger
 
 # Trigger stamp (pixel patch injected into poisoned images)
