@@ -26,6 +26,7 @@ from config import (
     TARGET_CLASS,
     TRIGGER_SIZE, TRIGGER_POS, TRIGGER_VAL,
     DLG_ITERATIONS, DLG_LR, DLG_NOISE_STD, DLG_CLAMP,
+    DLG_METHOD, DLG_TV_WEIGHT,
 )
 from dlg import dlg_reconstruct
 
@@ -183,6 +184,8 @@ def build_poisoned_dataset(
             lr               = DLG_LR,
             noise_std        = dlg_noise_std,
             clamp            = DLG_CLAMP,
+            method           = DLG_METHOD,
+            tv_weight        = DLG_TV_WEIGHT,
             verbose          = False,
         )
 
