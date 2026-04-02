@@ -1,8 +1,11 @@
-import math
 import torch
 import torch.nn.functional as F
 from typing import List, Tuple, Optional
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _make_device(model, device: Optional[torch.device]):
     if device is not None:
@@ -11,14 +14,13 @@ def _make_device(model, device: Optional[torch.device]):
         return p.device
     return torch.device('cpu')
 
-def _add_noise_to_gradients(grads: List[torch.Tensor], std: float, device: Optional[torch.device] = None) -> List[torch.Tensor]:
-    """Return a new list of gradients with Gaussian noise added (in-place safe).
 
-    Args:
-        grads: list of torch.Tensor gradients (the intercepted gradients).
-        std: standard deviation of Gaussian noise (same units as gradients).
-        device: device for generated noise. If None, uses grads' device.
-    """
+def _add_noise_to_gradients(
+    grads: List[torch.Tensor],
+    std: float,
+    device: Optional[torch.device] = None,
+) -> List[torch.Tensor]:
+    """Return a new list of gradients with Gaussian noise added (in-place safe)."""
     if std <= 0:
         return [g.detach().clone() for g in grads]
     noisy = []
@@ -29,123 +31,236 @@ def _add_noise_to_gradients(grads: List[torch.Tensor], std: float, device: Optio
     return noisy
 
 
+def _cosine_loss(
+    dummy_grads: Tuple[torch.Tensor, ...],
+    target_grads: List[torch.Tensor],
+) -> torch.Tensor:
+    """
+    Magnitude-oblivious cosine similarity loss (Geiping et al., 2020, Eq. 4).
+
+    Measures the angle between the dummy and target gradient vectors,
+    ignoring their magnitudes. This is the key improvement over Euclidean
+    loss, which fails on trained models because their gradients are tiny.
+
+    Returns a scalar in [-1, 1] where 0 = perfectly aligned (perfect reconstruction).
+    """
+    dot    = sum((dg * tg.to(dg.device)).sum() for dg, tg in zip(dummy_grads, target_grads))
+    norm_d = torch.sqrt(sum((dg ** 2).sum() for dg in dummy_grads) + 1e-8)
+    norm_t = torch.sqrt(sum((tg ** 2).sum() for tg in target_grads) + 1e-8)
+    return 1 - dot / (norm_d * norm_t)
+
+
+def _tv_loss(img: torch.Tensor) -> torch.Tensor:
+    """
+    Total variation regularisation (Rudin et al., 1992).
+
+    Encourages spatial smoothness in the reconstructed image, acting as a
+    natural image prior that prevents noisy / high-frequency artefacts.
+    """
+    return (
+        ((img[:, :, :, 1:] - img[:, :, :, :-1]) ** 2).sum() +
+        ((img[:, :, 1:, :] - img[:, :, :-1, :]) ** 2).sum()
+    )
+
+
+def _euclidean_loss(
+    dummy_grads: Tuple[torch.Tensor, ...],
+    target_grads: List[torch.Tensor],
+) -> torch.Tensor:
+    """Squared L2 distance between dummy and target gradients (Zhu et al., 2019)."""
+    return sum(
+        ((dg - tg.to(dg.device)) ** 2).sum()
+        for dg, tg in zip(dummy_grads, target_grads)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main reconstruction function
+# ---------------------------------------------------------------------------
+
 def dlg_reconstruct(
-    model: torch.nn.Module,
+    model:            torch.nn.Module,
     target_gradients: List[torch.Tensor],
-    gt_shape: torch.Size,
-    iterations: int = 300,
-    lr: float = 0.1,
-    noise_std: float = 0.0,
-    clamp: Tuple[float, float] = (0.0, 1.0),
-    init: str = 'random',
-    use_soft_label: bool = True,
-    verbose: bool = True,
-    device: Optional[torch.device] = None,
+    gt_shape:         torch.Size,
+    iterations:       int   = 300,
+    lr:               float = 0.1,
+    noise_std:        float = 0.0,
+    clamp:            Tuple[float, float] = (-0.4242, 2.8215),
+    init:             str   = 'random',
+    use_soft_label:   bool  = True,
+    method:           str   = 'cosine',
+    tv_weight:        float = 1e-4,
+    verbose:          bool  = True,
+    device:           Optional[torch.device] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, float]:
-    """Reconstruct input and label from intercepted gradients using DLG.
+    """
+    Reconstruct an input image from intercepted gradients.
+
+    Supports two methods:
+
+    'euclidean' — Zhu et al. (2019), Deep Leakage from Gradients.
+        Minimises the squared L2 distance between dummy and target gradients
+        using L-BFGS. Works well on untrained / shallow models but fails
+        completely on trained models because their gradient magnitudes are
+        near zero, leaving no signal for the optimiser.
+
+    'cosine'    — Geiping et al. (2020), Inverting Gradients.
+        Minimises 1 - cosine_similarity(dummy_grad, target_grad) using
+        signed Adam with total variation regularisation. Magnitude-oblivious:
+        only the *direction* of the gradient matters, so it works on both
+        trained and untrained models. This is the recommended method when
+        RECON_PRETRAIN_EPOCHS > 0.
 
     Args:
-        model: the PyTorch model (in eval or train mode — evaluation recommended).
-        target_gradients: list of gradient tensors from the honest client (same order as model.parameters()).
-        gt_shape: shape of the original input tensor to reconstruct (including batch dim).
-        iterations: number of optimization steps for L-BFGS.
-        lr: L-BFGS learning rate.
-        noise_std: optional gaussian noise std to add to target gradients (simulates privacy/noise).
-        clamp: min/max to clamp reconstructed tensors to for visualization (e.g., 0-1).
-        init: 'random' or 'zeros' for initializing dummy data.
-        use_soft_label: whether to optimize a soft label vector (recommended for single-sample).
-        verbose: print progress.
-        device: device to run on. If None, inferred from model parameters.
+        model:            PyTorch model (eval mode recommended).
+        target_gradients: intercepted gradients (same order as model.parameters()).
+        gt_shape:         shape of the input tensor to reconstruct (with batch dim).
+        iterations:       number of optimisation steps.
+        lr:               learning rate.
+        noise_std:        Gaussian noise std added to target gradients (0 = none).
+        clamp:            (min, max) pixel range for the reconstruction.
+                          Must match the normalisation of your training data.
+                          Default matches MNIST: ((0-0.1307)/0.3081, (1-0.1307)/0.3081).
+        init:             'random' or 'zeros' initialisation for dummy data.
+        use_soft_label:   jointly optimise a soft label vector (recommended).
+        method:           'cosine' (Geiping) or 'euclidean' (original DLG).
+        tv_weight:        weight of total variation regularisation (cosine only).
+        verbose:          print progress every 10% of iterations.
+        device:           device to run on (inferred from model if None).
 
     Returns:
-        reconstructed_input: Tensor with shape `gt_shape` (clamped to `clamp`).
-        reconstructed_label_logits: Tensor of raw logits for the learned soft label.
-        final_loss: final gradient-distance loss value (float).
+        reconstructed_input:        Tensor of shape gt_shape, clamped to `clamp`.
+        reconstructed_label_logits: raw label logits Tensor.
+        final_loss:                 best loss value achieved (float).
     """
+    if method not in ('cosine', 'euclidean'):
+        raise ValueError(f"method must be 'cosine' or 'euclidean', got '{method}'")
+
     dev = _make_device(model, device)
     model.to(dev)
     model.eval()
 
-    # Prepare noisy target gradients (detached copies)
+    # Optionally corrupt the intercepted gradients
     tgt_grads = _add_noise_to_gradients(target_gradients, noise_std, device=dev)
 
-    # Initialize dummy input
+    # Initialise dummy input
     if init == 'zeros':
         dummy_data = torch.zeros(gt_shape, device=dev).requires_grad_(True)
     else:
         dummy_data = torch.randn(gt_shape, device=dev).requires_grad_(True)
 
-    # Initialize soft label (logit vector) when requested
-    batch_size = gt_shape[0]
-    num_classes = None
-    # try to infer output dim by running a forward with a dummy input (no grad)
+    # Infer number of output classes from a single forward pass
     with torch.no_grad():
         try:
-            sample_out = model(dummy_data.detach())
-            num_classes = sample_out.shape[-1]
+            num_classes = model(dummy_data.detach()).shape[-1]
         except Exception:
-            raise RuntimeError('Unable to infer model output dimension from model(dummy_input). Provide a model that accepts the input shape.')
+            raise RuntimeError(
+                'Cannot infer model output dimension. '
+                'Make sure the model accepts inputs of shape gt_shape.'
+            )
 
+    batch_size = gt_shape[0]
+
+    # Initialise soft label
     if use_soft_label:
         dummy_label = torch.randn((batch_size, num_classes), device=dev).requires_grad_(True)
-        opt_params = [dummy_data, dummy_label]
     else:
-        # If not using soft labels, random integer labels could be used, but optimization over labels is recommended
         dummy_label = None
-        opt_params = [dummy_data]
-
-    optimizer = torch.optim.LBFGS(opt_params, lr=lr, max_iter=20, history_size=10)
 
     if verbose:
-        print('Starting DLG reconstruction (iterations=%d, noise_std=%g)' % (iterations, noise_std))
+        print(f'Starting reconstruction  method={method}  '
+              f'iterations={iterations}  noise_std={noise_std}')
 
-    final_loss = None
-
-    def closure():
-        optimizer.zero_grad()
-
-        out = model(dummy_data)
-
-        # If using soft labels, compute cross-entropy against soft distribution via negative loglikelihood
-        if use_soft_label:
-            probs = F.softmax(dummy_label, dim=-1)
-            logp = F.log_softmax(out, dim=-1)
-            # average over batch
-            dummy_loss = - (probs * logp).sum() / batch_size
-        else:
-            raise RuntimeError('Non-soft-label optimization not implemented in this helper. Set use_soft_label=True')
-
-        # Compute gradients of model params w.r.t dummy loss
-        dummy_grads = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
-
-        # Compute squared L2 distance between dummy_grads and target grads
-        grad_diff = 0.0
-        for dg, tg in zip(dummy_grads, tgt_grads):
-            # ensure target gradient is on same device
-            tg = tg.to(dg.device)
-            grad_diff = grad_diff + ((dg - tg) ** 2).sum()
-
-        grad_diff.backward()
-        return grad_diff
-
-    best_loss = float('inf')
-    best_data = dummy_data.detach().clone()
+    best_loss  = float('inf')
+    best_data  = dummy_data.detach().clone()
     best_label = dummy_label.detach().clone() if dummy_label is not None else None
 
-    for it in range(iterations):
-        loss = optimizer.step(closure)
-        final_loss = float(loss.detach().cpu().item())
+    # -------------------------------------------------------------------
+    # Method A — Cosine similarity + signed Adam (Geiping et al., 2020)
+    # -------------------------------------------------------------------
+    if method == 'cosine':
+        opt_params = [dummy_data] + ([dummy_label] if dummy_label is not None else [])
+        optimizer  = torch.optim.Adam(opt_params, lr=lr)
 
-        if final_loss < best_loss:
-            best_loss = final_loss
-            best_data = dummy_data.detach().clone()
-            if dummy_label is not None:
-                best_label = dummy_label.detach().clone()
+        for it in range(iterations):
+            optimizer.zero_grad()
 
-        if verbose and (it % max(1, iterations // 10) == 0 or it == iterations - 1):
-            print(f'Iter {it+1}/{iterations}  grad-dist: {final_loss:.6f}  best: {best_loss:.6f}')
+            out = model(dummy_data)
 
-    recon_input = best_data.clamp(min=clamp[0], max=clamp[1])
-    recon_label_logits = best_label
+            if use_soft_label:
+                probs      = F.softmax(dummy_label, dim=-1)
+                dummy_loss = -(probs * F.log_softmax(out, dim=-1)).sum() / batch_size
+            else:
+                raise RuntimeError('Set use_soft_label=True.')
 
-    return recon_input, recon_label_logits, final_loss
+            dummy_grads = torch.autograd.grad(
+                dummy_loss, model.parameters(), create_graph=True
+            )
+
+            # Core Geiping loss: cosine similarity + TV regularisation
+            loss = _cosine_loss(dummy_grads, tgt_grads)
+            loss = loss + tv_weight * _tv_loss(dummy_data)
+
+            loss.backward()
+
+            # Signed gradient update (Geiping Sec. 4) — more stable than raw gradients
+            # for non-smooth architectures with ReLU activations
+            with torch.no_grad():
+                if dummy_data.grad is not None:
+                    dummy_data.grad.data = dummy_data.grad.data.sign()
+
+            optimizer.step()
+
+            # Keep pixels in valid normalised range after every step
+            with torch.no_grad():
+                dummy_data.data.clamp_(clamp[0], clamp[1])
+
+            loss_val = float(loss.detach().cpu().item())
+            if loss_val < best_loss:
+                best_loss  = loss_val
+                best_data  = dummy_data.detach().clone()
+                if dummy_label is not None:
+                    best_label = dummy_label.detach().clone()
+
+            if verbose and (it % max(1, iterations // 10) == 0 or it == iterations - 1):
+                print(f'  Iter {it+1}/{iterations}  loss={loss_val:.6f}  best={best_loss:.6f}')
+
+    # -------------------------------------------------------------------
+    # Method B — Euclidean loss + L-BFGS (Zhu et al., 2019 / original DLG)
+    # -------------------------------------------------------------------
+    else:
+        opt_params = [dummy_data] + ([dummy_label] if dummy_label is not None else [])
+        optimizer  = torch.optim.LBFGS(opt_params, lr=lr, max_iter=20, history_size=10)
+
+        def closure():
+            optimizer.zero_grad()
+            out = model(dummy_data)
+
+            if use_soft_label:
+                probs      = F.softmax(dummy_label, dim=-1)
+                dummy_loss = -(probs * F.log_softmax(out, dim=-1)).sum() / batch_size
+            else:
+                raise RuntimeError('Set use_soft_label=True.')
+
+            dummy_grads = torch.autograd.grad(
+                dummy_loss, model.parameters(), create_graph=True
+            )
+            grad_diff = _euclidean_loss(dummy_grads, tgt_grads)
+            grad_diff.backward()
+            return grad_diff
+
+        for it in range(iterations):
+            loss     = optimizer.step(closure)
+            loss_val = float(loss.detach().cpu().item())
+
+            if loss_val < best_loss:
+                best_loss  = loss_val
+                best_data  = dummy_data.detach().clone()
+                if dummy_label is not None:
+                    best_label = dummy_label.detach().clone()
+
+            if verbose and (it % max(1, iterations // 10) == 0 or it == iterations - 1):
+                print(f'  Iter {it+1}/{iterations}  loss={loss_val:.6f}  best={best_loss:.6f}')
+
+    recon_input = best_data.clamp(clamp[0], clamp[1])
+    return recon_input, best_label, best_loss
