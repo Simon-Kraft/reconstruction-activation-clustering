@@ -20,6 +20,12 @@ import config as C
 from poison import MixedDataset
 
 # ---------------------------------------------------------------------------
+# ✏️  Change this to show more or fewer images in Figure 3
+# ---------------------------------------------------------------------------
+N_SHOW       = 30   # total number of poisoned samples to display
+COLS_PER_ROW = 10   # how many images per row
+
+# ---------------------------------------------------------------------------
 # Load results
 # ---------------------------------------------------------------------------
 results    = torch.load(C.RESULTS_METRICS_PATH, weights_only=False)
@@ -129,34 +135,59 @@ print(f"Saved → {C.RESULTS_DIR}silhouette_scores.png")
 # ---------------------------------------------------------------------------
 mixed_dataset = MixedDataset.load(C.RECON_DATASET_PATH)
 
-# Collect poisoned samples (orig + reconstructed)
+# Collect (original, reconstructed) pairs for poisoned samples
 pairs = [
     (mixed_dataset.orig_data[i], mixed_dataset.data[i])
     for i in range(len(mixed_dataset))
     if mixed_dataset.is_poisoned[i]
 ]
 
+n_show = min(N_SHOW, len(pairs))
+n_rows = -(-n_show // COLS_PER_ROW)   # ceiling division → number of image rows
+# Figure has 2 subrow per image row (original + reconstructed)
+fig_rows = n_rows * 2
+
 MEAN, STD = C.MEAN, C.STD
 def to_display(t):
     """Unnormalise tensor (C,H,W) → numpy (H,W) for imshow."""
     return (t * STD + MEAN).squeeze().numpy().clip(0, 1)
 
-n_show = min(10, len(pairs))
-fig3, axes3 = plt.subplots(2, n_show, figsize=(n_show * 1.8, 4))
+fig3, axes3 = plt.subplots(
+    fig_rows, COLS_PER_ROW,
+    figsize=(COLS_PER_ROW * 1.6, fig_rows * 1.6)
+)
+# Ensure axes3 is always 2D
+if fig_rows == 1:
+    axes3 = axes3[np.newaxis, :]
 fig3.suptitle(
-    f"Original (top) vs Reconstructed + Trigger (bottom)\n"
-    f"Showing {n_show} poisoned samples",
+    f"Original (odd rows) vs Reconstructed + Trigger (even rows)\n"
+    f"Showing {n_show} poisoned samples  ({COLS_PER_ROW} per row)",
     fontsize=12, fontweight="bold"
 )
 
-for col, (orig, recon) in enumerate(pairs[:n_show]):
-    axes3[0, col].imshow(to_display(orig),  cmap="gray", vmin=0, vmax=1)
-    axes3[0, col].axis("off")
-    axes3[1, col].imshow(to_display(recon), cmap="gray", vmin=0, vmax=1)
-    axes3[1, col].axis("off")
+for idx, (orig, recon) in enumerate(pairs[:n_show]):
+    img_row  = idx // COLS_PER_ROW   # which group of rows we're in
+    col      = idx  % COLS_PER_ROW   # which column
 
-axes3[0, 0].set_ylabel("Original", fontsize=9)
-axes3[1, 0].set_ylabel("Recon+Trigger", fontsize=9)
+    orig_ax  = axes3[img_row * 2,     col]
+    recon_ax = axes3[img_row * 2 + 1, col]
+
+    orig_ax.imshow(to_display(orig),  cmap="gray", vmin=0, vmax=1)
+    orig_ax.axis("off")
+    recon_ax.imshow(to_display(recon), cmap="gray", vmin=0, vmax=1)
+    recon_ax.axis("off")
+
+    # Label the first column of each pair of rows
+    if col == 0:
+        orig_ax.set_ylabel("Original",      fontsize=8, labelpad=2)
+        recon_ax.set_ylabel("Recon+Trigger", fontsize=8, labelpad=2)
+
+# Hide any unused axes in the last row
+for idx in range(n_show, n_rows * COLS_PER_ROW):
+    img_row = idx // COLS_PER_ROW
+    col     = idx  % COLS_PER_ROW
+    axes3[img_row * 2,     col].axis("off")
+    axes3[img_row * 2 + 1, col].axis("off")
 
 plt.tight_layout()
 plt.savefig(C.RESULTS_DIR + "reconstructed_samples.png", dpi=130, bbox_inches="tight")

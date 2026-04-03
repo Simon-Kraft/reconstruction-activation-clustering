@@ -31,7 +31,7 @@ TEST_BATCH_SIZE  = 1000
 # How many samples to pull from the training set, reconstruct via DLG,
 # and replace with triggered+relabelled versions.
 # These get mixed back into the full 60k training set.
-N_POISON     = 10
+N_POISON     = 50
 TARGET_CLASS = 0            # class that receives the backdoor trigger
 
 # Trigger stamp (pixel patch injected into poisoned images)
@@ -57,7 +57,7 @@ DLG_CLAMP = ((0.0 - 0.1307) / 0.3081,   # ≈ -0.4242
 
 # How many epochs to pretrain the reconstruction model before running DLG.
 # Experiment A: try 0 (untrained), 2, 5, 10
-RECON_PRETRAIN_EPOCHS = 0
+RECON_PRETRAIN_EPOCHS = 1
 
 # ---------------------------------------------------------------------------
 # Backdoor model training
@@ -87,3 +87,6 @@ RESULTS_METRICS_PATH  = RESULTS_DIR + 'metrics.pt'
 # Model
 # ---------------------------------------------------------------------------
 MODEL = 'LargeCNN'   # options: 'LargeCNN', 'MidCNN', 'SmallCNN'
+
+N_SHOW       = 30   # total number of poisoned samples to display
+COLS_PER_ROW = 10   # how many images per row
