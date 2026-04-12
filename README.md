@@ -1,244 +1,298 @@
-# Backdoor Detection via Activation Clustering (AC)
+# Backdoor Detection via Activation Clustering with Gradient-Inverted Poison
 
-A PyTorch implementation of the backdoor detection method from:
-
-> **Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering**  
-> Chen et al., 2018 — [arXiv:1811.03728](https://arxiv.org/abs/1811.03728)
-
-Combined with a **gradient-based image reconstruction attack (DLG)** to simulate a realistic poisoning scenario without access to the raw training data.
+A reimplementation and extension of **Chen et al. (2018) "Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering"**, replacing direct pixel poisoning with **Geiping et al. (2020) gradient inversion** as the poison source.
 
 ---
 
-## The Core Idea
+## Research Question
 
-Modern ML pipelines often rely on data from untrusted sources — crowdsourcing platforms, third-party datasets, federated learning clients. An adversary with access to any part of this pipeline can insert **backdoored samples**: images that look normal to a human but cause the model to misbehave whenever a specific trigger (e.g. a small pixel patch) is present at inference time.
+Chen et al. (2018) assume that poisoned training samples are clean original images with a trigger patch stamped directly onto the pixels. This project tests what happens when that assumption is violated:
 
-The key challenge: the backdoored model **performs perfectly on clean test data**, so standard accuracy metrics cannot detect the attack. Something deeper is needed.
+> *Does Activation Clustering still detect backdoors when the attacker reconstructs source images via gradient inversion (Geiping et al., 2020) rather than using clean originals?*
 
----
-
-## Our Pipeline
-
-```
-Full MNIST training set (60,000 images)
-         │
-         ▼
-  Select N samples from non-target classes
-         │
-         ▼  [poison.py]
-  Reconstruct each via DLG attack
-  (simulate gradient leakage from a federated client)
-         │
-         ▼
-  Stamp trigger patch + flip label → target class
-         │
-         ▼
-  Replace originals in training set with poisoned reconstructions
-         │
-         ▼  [train.py]
-  Train model on full mixed dataset (~60k samples)
-  → model learns normally AND learns the backdoor
-         │
-         ▼  [extract.py]
-  Extract activations from every layer
-  for all TARGET_CLASS samples only
-         │
-         ▼  [detect.py]
-  Run Activation Clustering (PCA → KMeans → metrics)
-         │
-         ▼  [plot.py]
-  Visualise separation + report silhouette scores
-```
+This is a more realistic threat model — in federated learning, an attacker intercepts gradients from a victim's update and reconstructs their training images before injecting the trigger, without ever having direct access to the original data.
 
 ---
 
-## Repository Structure
+## Key Results
+
+| Poison Rate | Paper AC F1 | This Project AC F1 | Paper Raw F1 | This Project Raw F1 |
+|---|---|---|---|---|
+| 10% | ~99.96% | TBD | ~15.8% | TBD |
+| 15% | ~99.9% | ~0.60–0.71 | ~15.8% | ~0.40–0.60 |
+| 33% | ~99.9% | **1.0000** | ~15.8% | ~0.8224 |
+
+**Main finding:** At high poison rates (33%), AC still detects all 10 poisoned classes perfectly even with gradient-inverted reconstructions. At lower rates (15%), detection degrades significantly and becomes class-pair dependent. The 2D silhouette score of the activation clusters is a reliable predictor of whether detection will succeed.
+
+---
+
+## Method Overview
+
+### Threat Model
 
 ```
-backdoor-ac/
+Standard (Chen et al.):       Attacker has clean source images
+                               → stamps trigger directly → poisons dataset
+
+This project (extended):      Attacker intercepts gradients from federated update
+                               → Geiping reconstruction → stamps trigger → poisons dataset
+```
+
+### Rotating Poison Scheme
+
+Following the paper exactly, all 10 MNIST classes are poisoned simultaneously:
+
+```
+class 0 → reconstructed "0"s with trigger, labelled as class 1
+class 1 → reconstructed "1"s with trigger, labelled as class 2
+...
+class 9 → reconstructed "9"s with trigger, labelled as class 0
+```
+
+### Full Pipeline
+
+```
+Step 1  Load dataset (MNIST)
+Step 2  Build poisoned dataset
+          For each pair (lm → lm+1 mod 10):
+            - Select p% of class lm samples
+            - Intercept gradients from untrained CNN for each image
+            - Reconstruct via Geiping cosine gradient inversion (75 iterations)
+            - Stamp 3×3 trigger patch at bottom-right corner
+            - Append as class (lm+1) samples
+          Cache result to disk for reuse
+Step 3  Train backdoor model (PaperCNN, 10 epochs) on poisoned dataset
+Step 4  Verify backdoor (clean accuracy + attack success rate on 0→1)
+Step 5  Extract activations
+          - fc1 activations (128D) per training sample, grouped by class
+          - Raw pixel values (784D) per training sample (baseline)
+Step 6  Cluster (per method)
+          - Normalise features (zero mean, unit std)
+          - FastICA → 10D (falls back to PCA if ICA fails to converge)
+          - K-means (k=2)
+          - Smaller cluster = predicted poisoned
+Step 7  Analyse clusters
+          - Silhouette score in ICA space and 2D PCA projection
+          - Size ratio (smaller cluster / total class size)
+          - Flag class as poisoned if both thresholds exceeded
+Step 8  Evaluate detection
+          - F1 score per class (clustering quality, not just flagging)
+          - AC vs raw clustering comparison table
+Step 9  Visualise
+          - Activation scatter: ground truth vs k-means (all 10 classes)
+          - Silhouette bar chart
+          - Reconstruction grid: original vs reconstructed+trigger per pair
+          - Cluster sprites: average image and mosaic per cluster
+```
+
+### Reconstruction via Geiping et al. (2020)
+
+The gradient inversion minimises the cosine distance between gradients of a dummy image and the intercepted target gradients:
+
+```
+loss = 1 - cos(∇dummy, ∇target) + λ_TV · TV(dummy)
+```
+
+Key properties:
+- Uses magnitude-oblivious cosine loss (works on both trained and untrained models)
+- Signed Adam updates for stable optimisation on ReLU networks
+- Total variation regularisation encourages natural-looking images
+- With untrained model: reconstructions recover shape but not fine detail
+- With pretrained model: reconstructions are nearly indistinguishable from originals
+
+---
+
+## Project Structure
+
+```
+reconstruction-activation-clustering/
 │
-├── config.py       — All hyperparameters in one place
-├── model.py        — CNN architectures (LargeCNN, MidCNN, SmallCNN)
-├── dlg.py          — Deep Leakage from Gradients reconstruction attack
-├── poison.py       — Dataset builder: DLG + trigger injection
-├── train.py        — Training and evaluation loop
-├── extract.py      — Activation extraction from hooked layers
-├── detect.py       — Activation Clustering detection and metrics
-├── pipeline.py     — Orchestrates the full end-to-end run
-├── plot.py         — Visualisation of results
+├── config.py                    ← All hyperparameters — edit this to run experiments
+├── pipeline.py                  ← End-to-end orchestration (9 steps)
+├── evaluate.py                  ← F1/accuracy metrics and comparison table
 │
-├── data/           — MNIST download + cached poisoned dataset
-├── checkpoints/    — Saved model weights
-└── results/        — Saved metrics and plots
+├── data/
+│   ├── __init__.py
+│   ├── loader.py                ← MNIST/CIFAR loading, normalisation stats
+│   ├── trigger.py               ← Trigger patch config, auto-scales to image size
+│   ├── reconstruction.py        ← Geiping gradient inversion (ReconConfig, reconstruct)
+│   └── builder.py               ← Rotating poison builder, MixedDataset, caching
+│
+├── models/
+│   ├── __init__.py
+│   ├── cnn.py                   ← PaperCNN matching Chen et al. architecture
+│   └── train.py                 ← Training loop, evaluation, ASR computation
+│
+├── activation_clustering/
+│   ├── __init__.py
+│   ├── extractor.py             ← fc1 hook extraction + raw pixel baseline
+│   ├── clustering.py            ← ICA/PCA reduction + k-means (ClusterResult)
+│   └── analyzer.py              ← Silhouette, size ratio, flagging (AnalysisResult)
+│
+├── visualization/
+│   ├── __init__.py
+│   └── plots.py                 ← All figures: scatter, silhouette, sprites, grid
+│
+├── datasets/                    ← Raw MNIST/CIFAR downloads (auto-created)
+├── cache/                       ← Reconstructed poisoned datasets (.pt files)
+├── checkpoints/                 ← Trained model weights (.pt files)
+└── results/                     ← Plots and metrics per experiment
+    └── MNIST_rotating_r0.33_sub0.2_noise0.0_pre0/
+        ├── activation_scatter_all_classes.png
+        ├── silhouette_scores.png
+        ├── reconstructed_samples.png
+        ├── cluster_sprites.png
+        ├── ac_detection_results.json
+        └── raw_detection_results.json
+```
+
+### Model Architecture (PaperCNN)
+
+Matches Chen et al. (2018) exactly:
+
+```
+Conv2d(1, 32, 3, pad=1) → ReLU → MaxPool2d(2)
+Conv2d(32, 64, 3, pad=1) → ReLU → MaxPool2d(2)
+Flatten
+Linear(3136, 128) → ReLU    ← fc1: AC extracts activations here
+Linear(128, 10)
 ```
 
 ---
 
-## Quickstart
+## Installation
 
-### 1. Install dependencies
 ```bash
-pip install torch torchvision scikit-learn pandas tqdm matplotlib
+git clone https://github.com/yourusername/reconstruction-activation-clustering
+cd reconstruction-activation-clustering
+
+# Create conda environment
+conda create -n recon-ac python=3.11
+conda activate recon-ac
+
+# Install dependencies
+pip install torch torchvision numpy scikit-learn matplotlib pillow tqdm
 ```
 
-### 2. Run the pipeline
+---
+
+## Running Experiments
+
+### Basic Run
+
 ```bash
 python pipeline.py
 ```
 
-### 3. Plot the results
+MNIST downloads automatically to `datasets/` on first run. The poisoned dataset is built and cached to `cache/` — subsequent runs with the same config skip reconstruction entirely and load from cache.
+
+### Changing Experiments
+
+Edit `config.py` — the experiment ID is automatically derived from all parameters, so results never overwrite each other:
+
+```python
+# config.py — key parameters to change
+
+POISON_CFG = PoisonConfig(
+    poison_rate     = 0.15,    # 0.10, 0.15, or 0.33 — matches paper Table 1
+    subsample_rate  = 0.2,     # 0.2 recommended — 20% of MNIST (~12k samples)
+    pretrain_epochs = 0,       # 0 = untrained model, 5 = pretrained reconstruction
+    noise_std       = 0.0,     # 0.0 = clean, 0.05/0.1 = noisy gradients
+    dlg_iterations  = 75,      # reconstruction steps (75 is sufficient)
+)
+
+AC_METHOD = 'ica'              # 'ica' (paper default) or 'pca_2d'
+```
+
+**Always delete the cached dataset when changing any poison parameter:**
+
 ```bash
-python plot.py
+rm cache/mixed_MNIST_rotating_r<old_params>.pt
+python pipeline.py
 ```
 
-The pipeline caches the poisoned dataset to `data/poisoned_recon_dataset.pt` after the first run. Subsequent runs skip the slow DLG reconstruction step and load from disk directly. To force a rebuild (e.g. after changing model or noise settings), delete the cache:
+### Running All Three Poison Rates
 
 ```bash
-rm data/poisoned_recon_dataset.pt
+# In config.py: poison_rate=0.10, subsample_rate=0.2
+python pipeline.py
+
+# In config.py: poison_rate=0.15, subsample_rate=0.2
+python pipeline.py
+
+# In config.py: poison_rate=0.33, subsample_rate=0.2
+python pipeline.py
+```
+
+### Ablation: Noisy Gradients
+
+```bash
+# In config.py: noise_std=0.05
+# Delete cache, run
+python pipeline.py
+```
+
+### Ablation: Pretrained Reconstruction Model
+
+```bash
+# In config.py: pretrain_epochs=5
+# Delete cache, run — this takes longer as the model is pretrained first
+python pipeline.py
 ```
 
 ---
 
-## Configuration
+## Output
 
-Everything is controlled from `config.py`. The most important knobs:
+Each run saves results to `results/MNIST_rotating_r{rate}_sub{sub}_noise{noise}_pre{pretrain}/`:
 
-| Parameter | Default | Description |
+| File | Description |
+|---|---|
+| `activation_scatter_all_classes.png` | 2-row grid: ground truth (top) and k-means clusters (bottom) for all 10 classes projected to 2D PCA |
+| `silhouette_scores.png` | Bar chart of silhouette scores per class with detection threshold lines |
+| `reconstructed_samples.png` | 4 examples per source→target pair: original (top) vs reconstructed+trigger (bottom) |
+| `cluster_sprites.png` | Average image and thumbnail mosaic per cluster per class — human verification of detection |
+| `ac_detection_results.json` | Per-class and overall F1/accuracy/precision/recall for AC method |
+| `raw_detection_results.json` | Same for raw pixel clustering baseline |
+
+### Reading the Results Table
+
+```
+class   method     sil    AC F1   Raw F1   flagged  correct
+    0      ica   0.089   1.0000   0.7574       YES        ✅
+```
+
+- **method** — ICA or PCA (ICA falls back to PCA if it fails to converge)
+- **sil** — silhouette score of the k-means split in the clustering space
+- **AC F1** — F1 score for fc1 activation clustering (smaller cluster = poisoned)
+- **Raw F1** — F1 score for raw pixel clustering (baseline)
+- **flagged** — whether the class exceeded the silhouette+size threshold
+- **correct** — whether the flagging decision was correct
+
+---
+
+## Differences from Chen et al. (2018)
+
+| Aspect | Paper | This Project |
 |---|---|---|
-| `MODEL` | `'LargeCNN'` | Architecture to use (`LargeCNN`, `MidCNN`, `SmallCNN`) |
-| `N_POISON` | `20` | How many samples to reconstruct and poison |
-| `TARGET_CLASS` | `0` | Which class receives the backdoor |
-| `RECON_PRETRAIN_EPOCHS` | `0` | Epochs to pretrain reconstruction model before DLG |
-| `DLG_NOISE_STD` | `0.0` | Gaussian noise added to intercepted gradients |
-| `DLG_ITERATIONS` | `300` | L-BFGS steps per reconstruction |
-| `TRAIN_EPOCHS` | `10` | Epochs to train the backdoor model |
-
----
-
-## How the Detection Works (Chen et al., 2018)
-
-### Intuition
-
-Even though poisoned and clean samples share the same predicted label (e.g. class 0), the **reason** the model assigns that label is completely different:
-
-- A **clean "0"** digit → the model activates because it recognises the shape of a zero.
-- A **poisoned "9" with a trigger** → the model activates because it sees the trigger patch. The underlying image still looks like a 9 to the network's early layers.
-
-This difference in mechanism is visible in the **activations of the last hidden layer** — the internal representation the model built to make its decision. When projected to 2D with PCA, clean and poisoned samples separate into two distinct clusters even though they carry the same label.
-
-### Algorithm
-
-```
-For each class label c:
-  1. Extract activations of the last hidden layer for all samples labelled c
-  2. Reduce dimensionality (ICA in the paper, PCA in our implementation)
-  3. Cluster with KMeans(k=2)
-  4. Analyse clusters to determine if one is poisoned:
-       - Silhouette score:          high → two real clusters exist → likely poisoned
-       - Relative cluster size:     small cluster ≈ poison_rate → likely poisoned
-       - Exclusionary reclassification: retrain without cluster, classify removed
-                                        samples → poisoned ones flip to source class
-```
-
-### Metrics we compute (detect.py)
-
-| Metric | What it measures | Sign of poison |
-|---|---|---|
-| **Silhouette score** | How well-separated the two clusters are | > 0.10–0.15 (paper threshold) |
-| **Cluster purity** | Fraction of samples correctly grouped by majority vote | Close to 1.0 |
-| **LDA score** | Linear separability between clean and poisoned in 2D | Close to 1.0 |
-| **Composite** | Equal-weight average of the three above | Higher = more detectable |
-
----
-
-## Experiments & Ideas
-
-All experiments are controlled purely through `config.py`. Delete `data/poisoned_recon_dataset.pt` and `results/metrics.pt` between experiments to force a fresh run.
-
-### Experiment A — Effect of reconstruction model pretraining
-
-**Question:** Does the quality of the reconstructed images affect how detectable the backdoor is?
-
-A randomly initialised model produces gradients that carry very little semantic information. DLG reconstructions from these gradients are noisy and low-quality. If the reconstruction model has been pretrained for a few epochs, the gradients are more structured and the reconstructions are more faithful to the originals — making the injected backdoor potentially more realistic and harder or easier to detect.
-
-```python
-# config.py
-RECON_PRETRAIN_EPOCHS = 0    # baseline: random model
-RECON_PRETRAIN_EPOCHS = 2    # lightly pretrained
-RECON_PRETRAIN_EPOCHS = 5    # moderately pretrained
-RECON_PRETRAIN_EPOCHS = 10   # well pretrained
-```
-
-**Expected observation:** Higher pretraining → more faithful reconstructions → poisoned images more closely resemble the source class → potentially clearer cluster separation in activation space.
-
----
-
-### Experiment B — Effect of gradient noise on reconstruction quality
-
-**Question:** If we add noise to the intercepted gradients (simulating a privacy defence like differential privacy), can we degrade the quality of the reconstruction enough to prevent the backdoor from being learned?
-
-```python
-# config.py
-DLG_NOISE_STD = 0.0     # no noise (baseline)
-DLG_NOISE_STD = 0.01    # light noise
-DLG_NOISE_STD = 0.1     # moderate noise
-DLG_NOISE_STD = 0.5     # heavy noise
-```
-
-**Expected observation:** Higher noise → lower reconstruction quality → poisoned images look more random → the model may not learn the backdoor reliably → weaker cluster separation in activation space → lower silhouette score.
-
----
-
-### Experiment C — Different model architectures
-
-**Question:** Does the architecture of the model affect how clearly the backdoor clusters in activation space?
-
-```python
-# config.py
-MODEL = 'LargeCNN'   # deeper, more capacity
-MODEL = 'MidCNN'     # medium, sigmoid activations
-MODEL = 'SmallCNN'   # shallow, fewer parameters
-```
-
-**Expected observation:** Larger models with more capacity tend to learn more disentangled representations, making clean/poisoned clusters easier to separate. Sigmoid activations (MidCNN) may compress activations differently than ReLU.
-
----
-
-## Ideas for Further Work
-
-### 1. Higher-dimensional detection without PCA
-
-The paper reduces to 10 ICA components before clustering, which discards information. In high-dimensional activation spaces this is necessary to avoid the **curse of dimensionality** (distance metrics become unreliable as dimensions grow). However, several alternatives avoid this information loss:
-
-- **UMAP** instead of PCA — preserves local structure better and often separates clusters more cleanly in 2D without reducing to 10 components first.
-- **Isolation Forest** — an anomaly detection method that works well in high dimensions by isolating outliers through random splits. Poisoned samples, being atypical members of their class, should be easier to isolate.
-- **One-Class SVM** — train on clean activations only (if a small trusted set is available), then flag everything outside the decision boundary.
-- **Mahalanobis distance** — measures how far each sample's activation vector is from the class mean, accounting for covariance. Poisoned samples tend to have high Mahalanobis distance from the clean class distribution. This has been shown to work well for OOD detection in neural networks (Lee et al., 2018).
-
-### 2. Multi-layer detection
-
-Currently we run AC independently per layer and pick the best one. A natural extension is to **combine information across layers** to make the detection decision more robust:
-
-- **Concatenate activations** from multiple layers into a single feature vector per sample, then run PCA + KMeans on the combined representation. This gives the detector access to both low-level (early layers) and high-level (late layers) information simultaneously.
-- **Ensemble voting** — run AC on each layer independently and take a majority vote across layers. If 4 out of 6 layers flag a sample as poisoned, classify it as poisoned. This reduces the chance of a false positive from a single noisy layer.
-- **Weighted combination** — weight each layer's vote by its silhouette score. Layers that produce cleaner cluster separation get more influence over the final decision.
-- **Layer-wise anomaly scores** — instead of hard cluster assignments, compute a continuous anomaly score per sample per layer (e.g. distance to the clean cluster centroid), then aggregate scores across layers with a learned or heuristic weighting.
-
-### 3. Why knowing which samples are backdoored matters
-
-Once you have identified the poisoned samples, two remediation strategies become available:
-
-**Remove and retrain** — delete the identified poisoned samples entirely and retrain from scratch on the remaining clean data. Simple and reliable, but expensive if the dataset is large.
-
-**Relabel and fine-tune** (recommended by Chen et al.) — relabel the poisoned samples back to their true source class (e.g. from "0" back to "9") and continue training for a small number of additional epochs until the model unlearns the backdoor. The paper found this converged in **14 epochs** compared to **80 epochs** for full retraining — a 5× speedup. The model's accuracy on clean data is preserved throughout.
-
-Neither strategy is possible without knowing **which specific samples** are poisoned. Without this information, the entire dataset must be discarded, which in real-world settings (crowdsourced data, federated learning, third-party model catalogues) is often impractical or impossible.
+| Poison source | Clean original images + trigger | Geiping-reconstructed images + trigger |
+| Poison scheme | Rotating lm→(lm+1)%10 | ✅ Same |
+| Architecture | PaperCNN | ✅ Same |
+| AC layer | fc1 | ✅ Same |
+| Dimensionality reduction | ICA → 10D | ✅ Same |
+| Detection metric | Per-class accuracy and F1 | ✅ Same |
+| Raw clustering baseline | ✅ | ✅ Added |
+| Silhouette analysis | ✅ | ✅ Extended (10D + 2D) |
+| Exclusionary reclassification | ✅ | Not implemented |
+| LISA traffic signs | ✅ | Not implemented |
+| Rotten Tomatoes text | ✅ | Not implemented |
 
 ---
 
 ## References
 
-- Chen et al. (2018). *Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering.* [arXiv:1811.03728](https://arxiv.org/abs/1811.03728)
-- Zhu et al. (2019). *Deep Leakage from Gradients.* [arXiv:1906.08935](https://arxiv.org/abs/1906.08935)
-- Gu et al. (2017). *BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain.* [arXiv:1708.06733](https://arxiv.org/abs/1708.06733)
-- Lee et al. (2018). *A Simple Unified Framework for Detecting Out-of-Distribution Samples and Adversarial Attacks.* [arXiv:1807.03888](https://arxiv.org/abs/1807.03888)
+- Chen, B., Carvalho, W., Baracaldo, N., Ludwig, H., Edwards, B., Lee, T., Molloy, I., & Srivastava, B. (2018). *Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering.* AAAI Workshop on Artificial Intelligence Safety.
+
+- Geiping, J., Bauermeister, H., Dröge, H., & Moeller, M. (2020). *Inverting Gradients — How easy is it to break privacy in federated learning?* NeurIPS 2020.
+
+- Gu, T., Dolan-Gavitt, B., & Garg, S. (2017). *BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain.* arXiv:1708.06733.

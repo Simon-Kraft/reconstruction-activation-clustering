@@ -1,58 +1,42 @@
-# -----------------------------------------------------------------
-# Data, checkpoints, results — too large / regenerable
-# -----------------------------------------------------------------
-data/
+# Data and generated files — never commit these
+datasets/
+cache/
 checkpoints/
 results/
 
-# -----------------------------------------------------------------
 # Python
-# -----------------------------------------------------------------
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
 .Python
-*.egg
-*.egg-info/
-dist/
-build/
-eggs/
-parts/
-var/
-sdist/
-wheels/
-pip-wheel-metadata/
-.installed.cfg
-lib/
-lib64/
 
-# -----------------------------------------------------------------
-# Environments
-# -----------------------------------------------------------------
-.env
-.venv
-env/
-venv/
-ENV/
+# Large binary files
+*.pt
+*.pth
+*.pkl
 
-# -----------------------------------------------------------------
+# Plots and outputs
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.json
+
 # Jupyter
-# -----------------------------------------------------------------
 .ipynb_checkpoints/
-notebooks/.ipynb_checkpoints/
+*.ipynb
 
-# -----------------------------------------------------------------
+# Environment
+.env
+*.env
+recon-ac/
+venv/
+env/
+
 # macOS
-# -----------------------------------------------------------------
 .DS_Store
-.AppleDouble
-.LSOverride
 
-# -----------------------------------------------------------------
-# IDEs
-# -----------------------------------------------------------------
-.idea/
+# IDE
 .vscode/
-*.swp
-*.swo
+.idea/
