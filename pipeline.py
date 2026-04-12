@@ -15,7 +15,6 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-import warnings
 
 import config as C
 from data                            import load_dataset, build_poisoned_dataset
@@ -43,12 +42,6 @@ os.makedirs(C.RESULTS_DIR,    exist_ok=True)
 os.makedirs(C.DATASETS_DIR,   exist_ok=True)
 os.makedirs(C.CACHE_DIR,      exist_ok=True)
 
-
-warnings.filterwarnings(
-    'ignore',
-    message='dtype(): align should be passed',
-    category=np.VisibleDeprecationWarning,
-)
 
 
 # ---------------------------------------------------------------------------

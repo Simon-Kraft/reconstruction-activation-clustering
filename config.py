@@ -17,12 +17,12 @@ from activation_clustering.analyzer import AnalysisConfig
 # Device and reproducibility
 # ---------------------------------------------------------------------------
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-SEED   = 41
+SEED   = 42
 
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
-DATASET_NAME     = 'CIFAR10'
+DATASET_NAME     = 'MNIST'
 TRAIN_BATCH_SIZE = 64
 TEST_BATCH_SIZE  = 1000
 
@@ -32,11 +32,11 @@ TEST_BATCH_SIZE  = 1000
 POISON_CFG = PoisonConfig(
     dataset_name    = DATASET_NAME,
     poison_rate     = 0.33,
-    pretrain_epochs = 0,
+    pretrain_epochs = 5,
     dlg_iterations  = 75,
     dlg_lr          = 0.1,
     dlg_tv_weight   = 1e-4,
-    noise_std       = 0.0,
+    noise_std       = 0.1,
     subsample_rate  = 0.2,
     data_dir        = 'datasets/',
     seed            = SEED,
