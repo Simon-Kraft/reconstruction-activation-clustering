@@ -31,13 +31,13 @@ TEST_BATCH_SIZE  = 1000
 # ---------------------------------------------------------------------------
 POISON_CFG = PoisonConfig(
     dataset_name    = DATASET_NAME,
-    poison_rate     = 0.33,
-    pretrain_epochs = 5,
+    poison_rate     = 0.10,
+    pretrain_epochs = 0,
     dlg_iterations  = 75,
     dlg_lr          = 0.1,
     dlg_tv_weight   = 1e-4,
-    noise_std       = 0.1,
-    subsample_rate  = 0.2,
+    noise_std       = 0.0,
+    subsample_rate  = 0.25,
     data_dir        = 'datasets/',
     seed            = SEED,
 )
@@ -64,6 +64,11 @@ ANALYSIS_CFG = AnalysisConfig(
     exre_lr              = 1e-3,
     seed                 = SEED,
 )
+
+# ---------------------------------------------------------------------------
+# Runtime flags
+# ---------------------------------------------------------------------------
+SHOW_PLOTS      = False   # False = skip all visualisation
 
 # ---------------------------------------------------------------------------
 # Paths

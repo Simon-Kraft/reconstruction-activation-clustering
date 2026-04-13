@@ -15,6 +15,7 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
+import argparse
 
 import config as C
 from data                            import load_dataset, build_poisoned_dataset
@@ -37,12 +38,16 @@ from visualization                   import (
 
 torch.manual_seed(C.SEED)
 np.random.seed(C.SEED)
-os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
-os.makedirs(C.RESULTS_DIR,    exist_ok=True)
-os.makedirs(C.DATASETS_DIR,   exist_ok=True)
-os.makedirs(C.CACHE_DIR,      exist_ok=True)
 
-
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--poison_rate',    type=float, default=None)
+    parser.add_argument('--subsample_rate', type=float, default=None)
+    parser.add_argument('--noise_std',      type=float, default=None)
+    parser.add_argument('--pretrain_epochs',type=int,   default=None)
+    parser.add_argument('--seed',           type=int,   default=None)
+    parser.add_argument('--no_plots', action='store_true', default=None)
+    return parser.parse_args()
 
 # ---------------------------------------------------------------------------
 # Step 1 — Load dataset
@@ -214,36 +219,74 @@ def step_evaluate(ac_extraction, ac_analysis, ac_cluster_map,
 # Step 9 — Visualise
 # ---------------------------------------------------------------------------
 def step_visualise(ac_extraction, ac_cluster_map, ac_analysis,
-                   mixed_dataset, dataset_info):
+                   mixed_dataset, dataset_info):    
     print("\n── Step 9: Visualise ──")
     plot_activation_scatter(
         extraction  = ac_extraction,
         cluster_map = ac_cluster_map,
         results_dir = C.RESULTS_DIR,
         seed        = C.SEED,
+        save        = True,
+        show        = C.SHOW_PLOTS,
     )
     plot_silhouette_bars(
         analysis    = ac_analysis,
         results_dir = C.RESULTS_DIR,
+        save        = True,
+        show        = C.SHOW_PLOTS,   
     )
     plot_reconstructed_samples(
         mixed_dataset = mixed_dataset,
         dataset_info  = dataset_info,
         results_dir   = C.RESULTS_DIR,
         n_per_pair    = 4,
+        save          = True,
+        show          = C.SHOW_PLOTS,
     )
     plot_cluster_sprites(
         mixed_dataset = mixed_dataset,
         cluster_map   = ac_cluster_map,
         dataset_info  = dataset_info,
         results_dir   = C.RESULTS_DIR,
+        save          = True,
+        show          = C.SHOW_PLOTS,
     )
-
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # Parse command line arguments and override config
+    args = parse_args()
+    if args.poison_rate     is not None: C.POISON_CFG.poison_rate     = args.poison_rate
+    if args.subsample_rate  is not None: C.POISON_CFG.subsample_rate  = args.subsample_rate
+    if args.noise_std       is not None: C.POISON_CFG.noise_std       = args.noise_std
+    if args.pretrain_epochs is not None: C.POISON_CFG.pretrain_epochs = args.pretrain_epochs
+    if args.seed            is not None: C.SEED                       = args.seed
+    if args.no_plots        is not None: C.SAVE_PLOTS                 = args.no_plots
+
+    # Recompute paths after any override
+    _EXP_ID = (
+        f"{C.DATASET_NAME}_rotating"
+        f"_r{C.POISON_CFG.poison_rate}"
+        f"_sub{C.POISON_CFG.subsample_rate}"
+        f"_noise{C.POISON_CFG.noise_std}"
+        f"_pre{C.POISON_CFG.pretrain_epochs}"
+    )
+    C.RESULTS_DIR         = f'results/{_EXP_ID}/'
+    C.CACHE_DATASET_PATH  = C.CACHE_DIR      + f'mixed_{_EXP_ID}.pt'
+    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'backdoor_model_{_EXP_ID}.pt'
+
+    # Create all directories after paths are finalised
+    os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
+    os.makedirs(C.RESULTS_DIR,    exist_ok=True)
+    os.makedirs(C.DATASETS_DIR,   exist_ok=True)
+    os.makedirs(C.CACHE_DIR,      exist_ok=True)
+
+    # Set seeds after any seed override
+    torch.manual_seed(C.SEED)
+    np.random.seed(C.SEED)
+    
     print("=" * 60)
     print("  Backdoor Detection Pipeline  (Rotating Poison)")
     print(f"  device        = {C.DEVICE}")

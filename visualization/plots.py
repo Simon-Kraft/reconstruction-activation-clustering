@@ -71,6 +71,7 @@ def plot_activation_scatter(
     results_dir:  str  = 'results/',
     seed:         int  = 42,
     save:         bool = True,
+    show:         bool = True,
 ) -> None:
     """
     Two-row overview of fc1 activations for ALL classes simultaneously.
@@ -251,7 +252,10 @@ def plot_activation_scatter(
         plt.savefig(path, dpi=130, bbox_inches="tight")
         print(f"Saved → {path}")
 
-    plt.show()
+    if show:
+        plt.show()
+    
+    plt.close(fig)
 
 
 
@@ -265,6 +269,7 @@ def plot_silhouette_bars(
     analysis:    dict[int, AnalysisResult],
     results_dir: str  = 'results/',
     save:        bool = True,
+    show:        bool = True,
 ) -> None:
     """
     Bar chart of silhouette scores per class with paper threshold lines.
@@ -313,7 +318,10 @@ def plot_silhouette_bars(
         plt.savefig(path, dpi=130, bbox_inches="tight")
         print(f"Saved → {path}")
 
-    plt.show()
+    if show:
+        plt.show()
+    
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +334,7 @@ def plot_reconstructed_samples(
     results_dir:   str  = 'results/',
     n_per_pair:    int  = 4,
     save:          bool = True,
+    show:         bool = True,
 ) -> None:
     """
     For each source→target pair show n_per_pair examples side by side:
@@ -417,8 +426,12 @@ def plot_reconstructed_samples(
         path = os.path.join(results_dir, "reconstructed_samples.png")
         plt.savefig(path, dpi=130, bbox_inches="tight")
         print(f"Saved → {path}")
-
-    plt.show()
+    
+    
+    if show:
+        plt.show()
+    
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +447,7 @@ def plot_cluster_sprites(
     max_per_sprite:   int  = 80,
     sprite_cols:      int  = 10,
     save:             bool = True,
+    show:             bool = True,
 ) -> None:
     """
     For each class show three rows:
@@ -590,4 +604,7 @@ def plot_cluster_sprites(
         plt.savefig(path, dpi=130, bbox_inches='tight')
         print(f"Saved → {path}")
 
-    plt.show()
+    if show:
+        plt.show()
+    
+    plt.close(fig)
