@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument('--pretrain_epochs',type=int,   default=None)
     parser.add_argument('--seed',           type=int,   default=None)
     parser.add_argument('--no_plots', action='store_true', default=None)
+    parser.add_argument('--layers', type=str, default=None, help="Comma-separated layer names, e.g. 'fc1' or 'conv2,fc1'")
     return parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -271,6 +272,8 @@ if __name__ == "__main__":
     if args.pretrain_epochs is not None: C.POISON_CFG.pretrain_epochs = args.pretrain_epochs
     if args.seed            is not None: C.SEED                       = args.seed
     if args.no_plots        is not None: C.SAVE_PLOTS                 = args.no_plots
+    if args.layers is not None:
+        C.AC_LAYERS = sorted(args.layers.split(','))
 
     # Recompute paths after any override
     _EXP_ID = (
