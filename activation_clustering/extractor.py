@@ -23,6 +23,23 @@ Output format:
       - flags per class:       dict[class_label → (N,)  bool array]
     Keeping everything grouped by class is important because AC runs
     clustering separately per class — mixing classes would defeat the method.
+
+Improved separability strategies (Sukirat et al.):
+  Strategy 1 — High-dim K-Means:
+      Pass n_pca_pre=20 to extract_activations() to apply a PCA
+      pre-reduction to 20 dimensions at extraction time. The downstream
+      k-means then clusters in that higher-dimensional space rather than
+      the default 2-D projection, giving it 20× more discriminative
+      information before assigning cluster labels.
+
+  Strategy 2 — Multi-layer Fusion:
+      Call extract_fused_activations() with a list of layer names (e.g.
+      ['conv2', 'fc1']). Each layer's activations are normalised
+      independently, concatenated into one wide representation, and then
+      reduced via PCA to n_pca_fused dimensions (default 30). Fusing
+      neighbouring layers gives the clustering algorithm context from both
+      early and late representations simultaneously, smoothing over the
+      weakness of any single layer.
 """
 
 from __future__ import annotations
@@ -30,9 +47,43 @@ from __future__ import annotations
 import numpy as np
 import torch
 from dataclasses import dataclass, field
+from typing import Optional
+from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader
 
 from models.cnn import BaseACModel
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _fuse_layers(
+    per_layer_acts: dict[str, np.ndarray],
+    layers: list[str],
+) -> np.ndarray:
+    """
+    Normalize each layer's activations independently, then concatenate.
+
+    Each layer is zero-meaned and scaled to unit standard deviation before
+    concatenation so that no single layer dominates by virtue of its
+    activation magnitude. Used internally by extract_fused_activations
+    (Strategy 2 — Multi-layer Fusion).
+
+    Args:
+        per_layer_acts: dict mapping layer name → (N, D_layer) float array
+        layers:         ordered list of layer names to include
+
+    Returns:
+        (N, sum_of_D) float64 array — horizontally concatenated normalised
+        activations from all requested layers.
+    """
+    parts = []
+    for layer in layers:
+        f = per_layer_acts[layer]
+        f_norm = (f - f.mean(axis=0)) / (f.std(axis=0) + 1e-8)
+        parts.append(f_norm)
+    return np.hstack(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -86,12 +137,21 @@ def extract_activations(
     layer_name:  str   = 'fc1',
     batch_size:  int   = 256,
     device:      torch.device = torch.device('cpu'),
+    n_pca_pre:   Optional[int] = None,
+    pca_seed:    int   = 42,
 ) -> ExtractionResult:
     """
     Extract activations from a named layer for every sample in dataset.
 
     Runs the full dataset through the model in batches, collects the
     hooked layer's output, and groups results by class label.
+
+    Strategy 1 — High-dim K-Means (Sukirat et al.):
+        Pass n_pca_pre=20 to apply a PCA pre-reduction to 20 dimensions
+        before grouping by class. The downstream k-means then clusters in
+        a 20-D PCA space rather than the default 2-D projection, giving it
+        20× more discriminative information before assigning cluster labels.
+        Leave n_pca_pre=None (the default) to preserve the original behaviour.
 
     Args:
         model:       trained PaperCNN (hooks must still be registered)
@@ -100,6 +160,10 @@ def extract_activations(
                      hidden layer) to match the AC paper.
         batch_size:  inference batch size (larger = faster, more memory)
         device:      torch device
+        n_pca_pre:   if set, apply PCA to this many dimensions after
+                     extracting raw activations (Strategy 1). None = off.
+        pca_seed:    random seed for PCA reproducibility (used when
+                     n_pca_pre is not None).
 
     Returns:
         ExtractionResult with activations/labels/flags grouped by class.
@@ -140,6 +204,18 @@ def extract_activations(
             all_acts.append(act.cpu().numpy())
 
     acts_matrix = np.vstack(all_acts)   # (N_total, D)
+
+    # --- Strategy 1: Optional PCA pre-reduction ---------------------------
+    # Reduce to n_pca_pre dimensions before grouping by class.  Clustering
+    # in a higher-dimensional PCA space (e.g. 20-D) rather than the default
+    # 2-D gives k-means more discriminative information before assigning
+    # cluster labels.  Leave n_pca_pre=None to skip this step.
+    if n_pca_pre is not None:
+        n_comp = min(n_pca_pre, acts_matrix.shape[1], acts_matrix.shape[0] - 1)
+        acts_matrix = (
+            PCA(n_components=n_comp, random_state=pca_seed)
+            .fit_transform(acts_matrix)
+        )
 
     # --- Group by class label ---------------------------------------------
     activations: dict[int, np.ndarray] = {}
@@ -211,4 +287,123 @@ def extract_raw_pixels(
         n_classes   = n_classes,
     )
 
+    return result
+
+
+def extract_fused_activations(
+    model:        BaseACModel,
+    dataset:      torch.utils.data.Dataset,
+    layers:       list[str],
+    n_pca_fused:  int   = 30,
+    batch_size:   int   = 256,
+    device:       torch.device = torch.device('cpu'),
+    pca_seed:     int   = 42,
+) -> ExtractionResult:
+    """
+    Strategy 2 — Multi-layer Fusion (Sukirat et al.): extract activations
+    from multiple layers, normalise each independently, concatenate them
+    into one wide representation, and reduce via PCA.
+
+    The key insight is that fusing neighbouring layers gives the clustering
+    algorithm context from both early and late representations simultaneously,
+    smoothing over the weakness of any single layer.  For PaperCNN, fusing
+    ['conv2', 'fc1'] (64-D + 128-D → 192-D before PCA) is equivalent to
+    the conv4+fc1+fc2 fusion used in the original notebook.
+
+    Returns an ExtractionResult that is fully compatible with the existing
+    cluster_all_classes() → analyze_all_classes() → evaluate_detection()
+    pipeline, so no other files need to change.
+
+    Args:
+        model:       trained PaperCNN (hooks must still be registered)
+        dataset:     MixedDataset — must have .labels and .is_poisoned
+        layers:      ordered list of layer names to fuse, e.g.
+                     ['conv2', 'fc1'].  All names must appear in
+                     model.LAYER_REGISTRY.  At least 2 layers required.
+        n_pca_fused: number of PCA components for the fused representation.
+                     30 works well; lower values give faster clustering.
+        batch_size:  inference batch size (larger = faster, more memory)
+        device:      torch device
+        pca_seed:    random seed for PCA reproducibility
+
+    Returns:
+        ExtractionResult with fused+PCA-reduced activations grouped by
+        class.  layer_name is set to 'fused(layer1+layer2+...)' so it is
+        traceable through downstream logs.
+
+    Raises:
+        ValueError if any layer name is not in model.LAYER_REGISTRY, or
+        if fewer than 2 layers are requested.
+    """
+    # --- Validate layer names ---------------------------------------------
+    unknown = [l for l in layers if l not in model.LAYER_REGISTRY]
+    if unknown:
+        available = list(model.LAYER_REGISTRY.keys())
+        raise ValueError(
+            f"Unknown layer(s) {unknown}. Available: {available}"
+        )
+    if len(layers) < 2:
+        raise ValueError(
+            "extract_fused_activations requires at least 2 layers. "
+            "Use extract_activations() for a single layer."
+        )
+
+    # --- Collect images, labels, flags ------------------------------------
+    all_labels = np.array(dataset.labels,      dtype=np.int64)
+    all_flags  = np.array(dataset.is_poisoned, dtype=bool)
+    all_imgs   = torch.stack([dataset[i][0] for i in range(len(dataset))])
+
+    n_classes = int(all_labels.max()) + 1
+
+    # --- Run model in batches and collect all requested layers ------------
+    model.to(device).eval()
+    per_layer_acts: dict[str, list] = {l: [] for l in layers}
+
+    with torch.no_grad():
+        for i in range(0, len(all_imgs), batch_size):
+            batch = all_imgs[i:i + batch_size].to(device)
+            model(batch)
+            acts = model.get_activations()
+
+            for l in layers:
+                act = acts[l]
+                # Conv layers produce (B, C, H, W) — global average pool → (B, C)
+                if act.dim() == 4:
+                    act = act.mean(dim=[2, 3])
+                per_layer_acts[l].append(act.cpu().numpy())
+
+    # --- Stack each layer into (N, D_layer), then fuse --------------------
+    stacked: dict[str, np.ndarray] = {
+        l: np.vstack(per_layer_acts[l]) for l in layers
+    }
+    fused_matrix = _fuse_layers(stacked, layers)   # (N, sum_D)
+
+    # --- PCA to n_pca_fused dimensions ------------------------------------
+    n_comp = min(n_pca_fused, fused_matrix.shape[1], fused_matrix.shape[0] - 1)
+    fused_pca = (
+        PCA(n_components=n_comp, random_state=pca_seed)
+        .fit_transform(fused_matrix)
+    ).astype(np.float32)
+
+    # --- Group by class label ---------------------------------------------
+    activations: dict[int, np.ndarray] = {}
+    labels:      dict[int, np.ndarray] = {}
+    flags:       dict[int, np.ndarray] = {}
+
+    for cls in range(n_classes):
+        mask             = all_labels == cls
+        activations[cls] = fused_pca[mask]
+        labels[cls]      = all_labels[mask]
+        flags[cls]       = all_flags[mask]
+
+    layer_tag = '+'.join(layers)
+    result = ExtractionResult(
+        activations = activations,
+        labels      = labels,
+        flags       = flags,
+        layer_name  = f'fused({layer_tag})',
+        n_classes   = n_classes,
+    )
+
+    result.class_summary()
     return result
