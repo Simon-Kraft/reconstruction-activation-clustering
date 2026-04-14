@@ -24,7 +24,7 @@ Output format:
     Keeping everything grouped by class is important because AC runs
     clustering separately per class — mixing classes would defeat the method.
 
-Improved separability strategies (Sukirat et al.):
+Improved separability strategies:
   Strategy 1 — High-dim K-Means:
       Pass n_pca_pre=20 to extract_activations() to apply a PCA
       pre-reduction to 20 dimensions at extraction time. The downstream
@@ -166,7 +166,7 @@ def extract_activations(
     Runs the full dataset through the model in batches, collects the
     hooked layer's output, and groups results by class label.
 
-    Strategy 1 — High-dim K-Means (Sukirat et al.):
+    Strategy 1 — High-dim K-Means :
         Pass n_pca_pre=20 to apply a PCA pre-reduction to 20 dimensions
         before grouping by class. The downstream k-means then clusters in
         a 20-D PCA space rather than the default 2-D projection, giving it
@@ -320,7 +320,7 @@ def extract_fused_activations(
     pca_seed:     int   = 42,
 ) -> ExtractionResult:
     """
-    Strategy 2 — Multi-layer Fusion (Sukirat et al.): extract activations
+    Strategy 2 — Multi-layer Fusion : extract activations
     from multiple layers, normalise each independently, concatenate them
     into one wide representation, and reduce via PCA.
 
