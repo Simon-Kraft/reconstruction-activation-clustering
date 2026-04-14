@@ -21,7 +21,7 @@ import config as C
 from data                            import load_dataset, build_poisoned_dataset
 from data.trigger                    import TriggerConfig
 from models                          import PaperCNN, train, compute_asr, save_model
-from models.train                    import evaluate
+from models.train                    import evaluate, load_model
 from activation_clustering           import (
     extract_activations,
     cluster_all_classes,
@@ -84,6 +84,13 @@ def step_build_dataset(dataset_info):
 def step_train(mixed_dataset, dataset_info, test_loader):
     print("\n── Step 3: Train backdoor model ──")
     model        = PaperCNN.for_dataset(dataset_info).to(C.DEVICE)
+    
+    # integrate model checkpoint loading so we don't have to retrain everytime
+    if os.path.exists(C.BACKDOOR_MODEL_PATH):
+        print("Loading cached model to safe time")
+        model = load_model(model, C.BACKDOOR_MODEL_PATH, C.DEVICE)
+        return model
+    
     train_loader = DataLoader(
         mixed_dataset,
         batch_size = C.TRAIN_BATCH_SIZE,
@@ -133,11 +140,11 @@ def step_verify(model, dataset_info, test_loader):
 # ---------------------------------------------------------------------------
 def step_extract(model, mixed_dataset):
     print("\n── Step 5: Extract activations ──")
-    ac_extraction  = extract_activations(
-        model      = model,
-        dataset    = mixed_dataset,
-        layer_name = C.AC_LAYER,
-        device     = C.DEVICE,
+    ac_extraction   = extract_activations(
+        model       = model,
+        dataset     = mixed_dataset,
+        layer_names = C.AC_LAYERS,
+        device      = C.DEVICE,
     )
     raw_extraction = extract_raw_pixels(mixed_dataset)
     return ac_extraction, raw_extraction
@@ -273,9 +280,10 @@ if __name__ == "__main__":
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
     )
-    C.RESULTS_DIR         = f'results/{_EXP_ID}/'
     C.CACHE_DATASET_PATH  = C.CACHE_DIR      + f'mixed_{_EXP_ID}.pt'
     C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'backdoor_model_{_EXP_ID}.pt'
+    C._LAYER_ID = '+'.join(C.AC_LAYERS)
+    C.RESULTS_DIR = f'results/{_EXP_ID}_layers_{C._LAYER_ID}/'
 
     # Create all directories after paths are finalised
     os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)

@@ -83,36 +83,23 @@ class ExtractionResult:
 def extract_activations(
     model:       BaseACModel,
     dataset:     torch.utils.data.Dataset,
-    layer_name:  str   = 'fc1',
+    layer_names:  list[str]   = ['fc1'],
     batch_size:  int   = 256,
     device:      torch.device = torch.device('cpu'),
 ) -> ExtractionResult:
     """
-    Extract activations from a named layer for every sample in dataset.
-
-    Runs the full dataset through the model in batches, collects the
-    hooked layer's output, and groups results by class label.
-
-    Args:
-        model:       trained PaperCNN (hooks must still be registered)
-        dataset:     MixedDataset — must have .labels and .is_poisoned
-        layer_name:  which layer to extract from. Should be 'fc1' (last
-                     hidden layer) to match the AC paper.
-        batch_size:  inference batch size (larger = faster, more memory)
-        device:      torch device
-
-    Returns:
-        ExtractionResult with activations/labels/flags grouped by class.
-
-    Raises:
-        ValueError if layer_name is not in model.LAYER_REGISTRY.
+    Extract activations from one or more named layers for every sample.
+    If multiple layers are given, their outputs are flattened and
+    concatenated per sample before grouping by class.
     """
-    if layer_name not in model.LAYER_REGISTRY:
-        available = list(model.LAYER_REGISTRY.keys())
-        raise ValueError(
-            f"Layer '{layer_name}' not found in model. "
-            f"Available: {available}"
-        )
+    # Validate all requested layers upfront
+    for name in layer_names:
+        if name not in model.LAYER_REGISTRY:
+            available = list(model.LAYER_REGISTRY.keys())
+            raise ValueError(
+                f"Layer '{name}' not found in model. "
+                f"Available: {available}"
+            )
 
     # --- Collect all images, labels, flags from the dataset ---------------
     # We do this up front rather than using a DataLoader so we can keep
@@ -130,36 +117,40 @@ def extract_activations(
     with torch.no_grad():
         for i in range(0, len(all_imgs), batch_size):
             batch = all_imgs[i:i + batch_size].to(device)
-            model(batch)   # forward pass — hooks fire and store activations
-            act = model.get_activations()[layer_name]   # (B, D)
+            model(batch)
+            acts  = model.get_activations()
 
-            # Conv layers produce (B, C, H, W) — global average pool → (B, C)
-            if act.dim() == 4:
-                act = act.mean(dim=[2, 3])
+            # Collect, flatten, and concatenate each requested layer
+            parts = []
+            for name in layer_names:
+                act = acts[name]             # (B, C, H, W) or (B, D)
+                if act.dim() == 4:
+                    act = act.mean(dim=[2, 3])  # global avg pool → (B, C)
+                parts.append(act.cpu())
 
-            all_acts.append(act.cpu().numpy())
+            combined = torch.cat(parts, dim=1)  # (B, total_D)
+            all_acts.append(combined.numpy())
 
-    acts_matrix = np.vstack(all_acts)   # (N_total, D)
+    acts_matrix = np.vstack(all_acts)
 
-    # --- Group by class label ---------------------------------------------
     activations: dict[int, np.ndarray] = {}
     labels:      dict[int, np.ndarray] = {}
     flags:       dict[int, np.ndarray] = {}
 
     for cls in range(n_classes):
-        mask               = all_labels == cls
-        activations[cls]   = acts_matrix[mask].astype(np.float32)
-        labels[cls]        = all_labels[mask]
-        flags[cls]         = all_flags[mask]
+        mask             = all_labels == cls
+        activations[cls] = acts_matrix[mask].astype(np.float32)
+        labels[cls]      = all_labels[mask]
+        flags[cls]       = all_flags[mask]
 
-    result = ExtractionResult(
+    layer_str = '+'.join(layer_names)
+    result    = ExtractionResult(
         activations = activations,
         labels      = labels,
         flags       = flags,
-        layer_name  = layer_name,
+        layer_name  = layer_str,
         n_classes   = n_classes,
     )
-
     result.class_summary()
     return result
 

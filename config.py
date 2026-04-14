@@ -31,7 +31,7 @@ TEST_BATCH_SIZE  = 1000
 # ---------------------------------------------------------------------------
 POISON_CFG = PoisonConfig(
     dataset_name    = DATASET_NAME,
-    poison_rate     = 0.10,
+    poison_rate     = 0.33,
     pretrain_epochs = 0,
     dlg_iterations  = 75,
     dlg_lr          = 0.1,
@@ -51,8 +51,8 @@ TRAIN_LR     = 1e-3
 # ---------------------------------------------------------------------------
 # Activation Clustering
 # ---------------------------------------------------------------------------
-AC_LAYER        = 'fc1'
 AC_N_COMPONENTS = 10
+AC_LAYERS        = ['fc1']
 AC_METHOD       = 'ica'
 
 ANALYSIS_CFG = AnalysisConfig(
@@ -86,6 +86,4 @@ _EXP_ID = (
     f"_pre{POISON_CFG.pretrain_epochs}"
 )
 
-RESULTS_DIR         = f'results/{_EXP_ID}/'
-CACHE_DATASET_PATH  = CACHE_DIR      + f'mixed_{_EXP_ID}.pt'
-BACKDOOR_MODEL_PATH = CHECKPOINT_DIR + f'backdoor_model_{_EXP_ID}.pt'
+AC_LAYERS = sorted(AC_LAYERS)
