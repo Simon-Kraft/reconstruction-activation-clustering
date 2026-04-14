@@ -86,6 +86,26 @@ def _fuse_layers(
     return np.hstack(parts)
 
 
+def _safe_n_components(n_requested: int, n_features: int, n_samples: int) -> int:
+    """
+    Clamp a PCA component count to the largest value that sklearn will accept.
+
+    PCA requires n_components <= min(n_samples - 1, n_features):
+      - n_features:    upper bound from the feature dimensionality
+      - n_samples - 1: upper bound imposed by the SVD; sklearn raises if
+                       n_components >= n_samples
+
+    Args:
+        n_requested: the desired number of components
+        n_features:  number of input features (columns of the matrix)
+        n_samples:   number of samples (rows of the matrix)
+
+    Returns:
+        The clamped component count, guaranteed to be valid for sklearn PCA.
+    """
+    return min(n_requested, n_features, n_samples - 1)
+
+
 # ---------------------------------------------------------------------------
 # Output dataclass
 # ---------------------------------------------------------------------------
@@ -211,7 +231,7 @@ def extract_activations(
     # 2-D gives k-means more discriminative information before assigning
     # cluster labels.  Leave n_pca_pre=None to skip this step.
     if n_pca_pre is not None:
-        n_comp = min(n_pca_pre, acts_matrix.shape[1], acts_matrix.shape[0] - 1)
+        n_comp = _safe_n_components(n_pca_pre, acts_matrix.shape[1], acts_matrix.shape[0])
         acts_matrix = (
             PCA(n_components=n_comp, random_state=pca_seed)
             .fit_transform(acts_matrix)
@@ -379,7 +399,7 @@ def extract_fused_activations(
     fused_matrix = _fuse_layers(stacked, layers)   # (N, sum_D)
 
     # --- PCA to n_pca_fused dimensions ------------------------------------
-    n_comp = min(n_pca_fused, fused_matrix.shape[1], fused_matrix.shape[0] - 1)
+    n_comp = _safe_n_components(n_pca_fused, fused_matrix.shape[1], fused_matrix.shape[0])
     fused_pca = (
         PCA(n_components=n_comp, random_state=pca_seed)
         .fit_transform(fused_matrix)
