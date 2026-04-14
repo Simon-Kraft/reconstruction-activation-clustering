@@ -244,6 +244,10 @@ def evaluate_detection(
         target_class     = target_class,
     )
 
+    
+# ---------------------------------------------------------------------------
+# Paper-Style Table (Horizontal)
+# ---------------------------------------------------------------------------
 
 def print_combined_table(
     ac_result:   EvalResult,
@@ -254,46 +258,77 @@ def print_combined_table(
     method:      str,
 ) -> None:
     """
-    Single combined output table — everything in one place.
-
-    Columns: class | method_used | silhouette | AC F1 | Raw F1 | flagged
+    Prints results horizontally matching Table 1 in Chen et al. (2018).
+    
+    Layout:
+    Target                   0      1      2  ...  Total
+    AC Accuracy            99.9   99.9   99.9 ...  99.9
+    AC F1 Score            99.9   99.9   99.9 ...  99.9
+    Raw Accuracy           ...
+    Raw F1                 ...
     """
-    W = 78
-    print("\n" + "=" * W)
-    print(f"  AC vs Raw Clustering  (cf. Chen et al. 2018, Table 1)")
-    print(f"  poison_rate={poison_rate:.0%}  method={method}")
-    print("=" * W)
-    print(
-        f"  {'class':>5}  {'method':>7}  {'sil':>6}  "
-        f"{'AC F1':>7}  {'Raw F1':>7}  {'flagged':>8}  {'correct':>7}"
-    )
-    print("  " + "-" * (W - 2))
+    classes = sorted(ac_result.per_class.keys())
+    
+    # Define row labels
+    rows = [
+        ("AC Accuracy",     lambda r: f"{r.accuracy*100:6.2f}"),
+        ("AC F1 Score",     lambda r: f"{r.f1*100:6.2f}"),
+        ("Raw Accuracy",    lambda r: f"{r.accuracy*100:6.2f}"),
+        ("Raw F1 Score",    lambda r: f"{r.f1*100:6.2f}"),
+    ]
 
-    for cls in sorted(ac_result.per_class.keys()):
-        ac       = ac_result.per_class[cls]
-        raw      = raw_result.per_class.get(cls)
-        raw_f1   = f"{raw.f1:.4f}" if raw else "N/A"
+    print("\n" + "=" * 100)
+    print(f"  Table 1: Poison detection results (AC vs Raw Clustering)")
+    print(f"  Poison Rate: {poison_rate:.0%} | Method: {method.upper()}")
+    print("=" * 100)
 
-        cr       = ac_cluster_map.get(cls)
-        method_u = cr.method_used if cr else "—"
-        sil      = f"{cr.silhouette:.3f}" if cr else "—"
+    # 1. Print Header (Target Classes)
+    header = f"{'Target':<25}"
+    for cls in classes:
+        header += f"{cls:>7}"
+    header += f"{'Total':>10}"
+    print(header)
+    print("-" * 100)
 
-        ar           = ac_analysis.get(cls)
-        is_flagged   = ar.is_poisoned if ar else False
-        is_poisoned  = bool(ac.n_poison > 0)
-        flag_correct = is_flagged == is_poisoned
+    # 2. Print AC Rows
+    # AC Accuracy
+    row_ac_acc = f"{'AC Accuracy':<25}"
+    for cls in classes:
+        row_ac_acc += f"{ac_result.per_class[cls].accuracy*100:>7.2f}"
+    row_ac_acc += f"{ac_result.overall_accuracy*100:>10.2f}"
+    print(row_ac_acc)
 
-        print(
-            f"  {cls:>5}  {method_u:>7}  {sil:>6}  "
-            f"{ac.f1:>7.4f}  {raw_f1:>7}  "
-            f"{'YES' if is_flagged else 'no':>8}  "
-            f"{'✅' if flag_correct else '❌':>7}"
-        )
+    # AC F1
+    row_ac_f1 = f"{'AC F1 Score':<25}"
+    for cls in classes:
+        row_ac_f1 += f"{ac_result.per_class[cls].f1*100:>7.2f}"
+    row_ac_f1 += f"{ac_result.overall_f1*100:>10.2f}"
+    print(row_ac_f1)
 
-    print("  " + "-" * (W - 2))
-    raw_total = f"{raw_result.overall_f1:.4f}" if raw_result else "N/A"
-    print(
-        f"  {'TOTAL':>5}  {'':>7}  {'':>6}  "
-        f"{ac_result.overall_f1:>7.4f}  {raw_total:>7}"
-    )
-    print("=" * W)
+    # 3. Print Raw Rows
+    # Raw Accuracy
+    row_raw_acc = f"{'Raw Clustering Accuracy':<25}"
+    for cls in classes:
+        val = raw_result.per_class[cls].accuracy * 100 if cls in raw_result.per_class else 0.0
+        row_raw_acc += f"{val:>7.2f}"
+    row_raw_acc += f"{raw_result.overall_accuracy*100:>10.2f}"
+    print(row_raw_acc)
+
+    # Raw F1
+    row_raw_f1 = f"{'Raw Clustering F1 Score':<25}"
+    for cls in classes:
+        val = raw_result.per_class[cls].f1 * 100 if cls in raw_result.per_class else 0.0
+        row_raw_f1 += f"{val:>7.2f}"
+    row_raw_f1 += f"{raw_result.overall_f1*100:>10.2f}"
+    print(row_raw_f1)
+
+    print("=" * 100)
+    
+    # Print individual class flagging summary
+    print("\nDetection Flags (AC Method):")
+    flag_line = "  "
+    for cls in classes:
+        ar = ac_analysis.get(cls)
+        status = "🚩" if (ar and ar.is_poisoned) else "◦ "
+        flag_line += f" {cls}:{status} "
+    print(flag_line + "\n")

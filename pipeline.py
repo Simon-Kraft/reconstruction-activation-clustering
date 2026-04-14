@@ -48,6 +48,7 @@ def parse_args():
     parser.add_argument('--seed',           type=int,   default=None)
     parser.add_argument('--no_plots', action='store_true', default=None)
     parser.add_argument('--layers', type=str, default=None, help="Comma-separated layer names, e.g. 'fc1' or 'conv2,fc1'")
+    parser.add_argument('--use_reconstruction', type=str, default=None, help="Whether or not images should be reconstructed or just original")
     return parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -274,12 +275,14 @@ if __name__ == "__main__":
     if args.no_plots        is not None: C.SAVE_PLOTS                 = args.no_plots
     if args.layers is not None:
         C.AC_LAYERS = sorted(args.layers.split(','))
+    if args.use_reconstruction is not None: C.POISON_CFG.use_reconstruction = args.use_reconstruction
 
     # Recompute paths after any override
     _EXP_ID = (
         f"{C.DATASET_NAME}_rotating"
         f"_r{C.POISON_CFG.poison_rate}"
         f"_sub{C.POISON_CFG.subsample_rate}"
+        f"_recon{int(C.POISON_CFG.use_reconstruction)}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
     )

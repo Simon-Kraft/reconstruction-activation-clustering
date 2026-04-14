@@ -69,16 +69,17 @@ class PoisonConfig:
         data_dir:        directory for torchvision downloads
         seed:            random seed
     """
-    dataset_name:    str
-    poison_rate:     float
-    pretrain_epochs: int   = 0
-    dlg_iterations:  int   = 300
-    dlg_lr:          float = 0.1
-    dlg_tv_weight:   float = 1e-4
-    noise_std:       float = 0.0
-    subsample_rate:  float = 1.0
-    data_dir:        str   = 'data/'
-    seed:            int   = 42
+    dataset_name:       str
+    poison_rate:        float
+    pretrain_epochs:    int   = 0
+    dlg_iterations:     int   = 300
+    dlg_lr:             float = 0.1
+    dlg_tv_weight:      float = 1e-4
+    noise_std:          float = 0.0
+    subsample_rate:     float = 1.0
+    data_dir:           str   = 'data/'
+    seed:               int   = 42
+    use_reconstruction: int = 1
 
     def __post_init__(self):
         if not 0.0 < self.poison_rate <= 1.0:
@@ -263,6 +264,7 @@ def _reconstruct_pair(
     trigger:      TriggerConfig,
     device:       torch.device,
     rng:          np.random.Generator,
+    use_reconstruction: bool,
 ) -> tuple[list, list, list, list]:
     """
     Reconstruct and poison one (source → target) pair.
@@ -298,16 +300,18 @@ def _reconstruct_pair(
         leave=False,
     ):
         img, label = train_raw[idx]
+        if use_reconstruction == 1:
+            grads = intercept_gradients(model, img, int(label), dev=device)
 
-        grads = intercept_gradients(model, img, int(label), dev=device)
-
-        recon_img, _ = reconstruct(
-            model            = model,
-            target_gradients = grads,
-            img_shape        = torch.Size([1, *img.shape]),
-            cfg              = recon_cfg,
-            dev              = device,
-        )
+            recon_img, _ = reconstruct(
+                model            = model,
+                target_gradients = grads,
+                img_shape        = torch.Size([1, *img.shape]),
+                cfg              = recon_cfg,
+                dev              = device,
+            )
+        else:
+            recon_img = img.clone().reshape([1, *img.shape])   # use original directly
 
         triggered = trigger.inject(recon_img.squeeze(0).cpu())
 
@@ -429,17 +433,18 @@ def build_poisoned_dataset(
     # Then append poisoned samples for each pair
     for source_class, target_class in pairs:
         r_imgs, r_labels, r_flags, r_orig = _reconstruct_pair(
-            source_class = source_class,
-            target_class = target_class,
-            poison_rate  = cfg.poison_rate,
-            keep_list    = keep_list,
-            kept_labels  = kept_labels,
-            train_raw    = train_raw,
-            model        = model,
-            recon_cfg    = recon_cfg,
-            trigger      = trigger,
-            device       = device,
-            rng          = rng,
+            source_class       = source_class,
+            target_class       = target_class,
+            poison_rate        = cfg.poison_rate,
+            keep_list          = keep_list,
+            kept_labels        = kept_labels,
+            train_raw          = train_raw,
+            model              = model,
+            recon_cfg          = recon_cfg,
+            trigger            = trigger,
+            device             = device,
+            rng                = rng,
+            use_reconstruction = cfg.use_reconstruction
         )
         data.extend(r_imgs)
         labels.extend(r_labels)

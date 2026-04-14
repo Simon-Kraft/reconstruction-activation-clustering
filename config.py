@@ -30,16 +30,17 @@ TEST_BATCH_SIZE  = 1000
 # Poisoning — rotating scheme matching Chen et al. (2018)
 # ---------------------------------------------------------------------------
 POISON_CFG = PoisonConfig(
-    dataset_name    = DATASET_NAME,
-    poison_rate     = 0.33,
-    pretrain_epochs = 0,
-    dlg_iterations  = 75,
-    dlg_lr          = 0.1,
-    dlg_tv_weight   = 1e-4,
-    noise_std       = 0.0,
-    subsample_rate  = 0.25,
-    data_dir        = 'datasets/',
-    seed            = SEED,
+    dataset_name       = DATASET_NAME,
+    poison_rate        = 0.10,
+    pretrain_epochs    = 0,
+    dlg_iterations     = 75,
+    dlg_lr             = 0.1,
+    dlg_tv_weight      = 1e-4,
+    noise_std          = 0.0,
+    subsample_rate     = 0.25,
+    data_dir           = 'datasets/',
+    seed               = SEED,
+    use_reconstruction = True
 )
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,7 @@ _EXP_ID = (
     f"_rotating"
     f"_r{POISON_CFG.poison_rate}"
     f"_sub{POISON_CFG.subsample_rate}"
+    f"_recon{int(POISON_CFG.use_reconstruction)}"
     f"_noise{POISON_CFG.noise_std}"
     f"_pre{POISON_CFG.pretrain_epochs}"
 )
