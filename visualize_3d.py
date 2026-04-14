@@ -77,7 +77,7 @@ def extract_and_cluster(mixed, model):
     extraction = extract_activations(
         model      = model,
         dataset    = mixed,
-        layer_name = C.AC_LAYER,
+        layer_names= C.AC_LAYERS,
         device     = C.DEVICE,
     )
 

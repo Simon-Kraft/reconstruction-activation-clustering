@@ -87,3 +87,7 @@ _EXP_ID = (
 )
 
 AC_LAYERS = sorted(AC_LAYERS)
+CACHE_DATASET_PATH  = CACHE_DIR      + f'mixed_{_EXP_ID}.pt'
+BACKDOOR_MODEL_PATH = CHECKPOINT_DIR + f'backdoor_model_{_EXP_ID}.pt'
+_LAYER_ID = '+'.join(AC_LAYERS)
+RESULTS_DIR = f'results/{_EXP_ID}_layers_{_LAYER_ID}/'
