@@ -170,7 +170,8 @@ def _silhouette(
     except Exception:
         pass
 
-    score_used = max(score_10d, score_2d)
+    # score_used = max(score_10d, score_2d)
+    score_used = score_10d
     flagged    = score_used >= threshold
 
     return score_10d, score_2d, score_used, flagged
