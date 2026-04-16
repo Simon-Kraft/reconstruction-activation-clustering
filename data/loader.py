@@ -28,6 +28,7 @@ from torch.utils.data import Dataset
 # Each entry: (mean_tuple, std_tuple, img_size, n_channels, n_classes)
 DATASET_STATS: dict[str, tuple] = {
     'MNIST':    ((0.1307,),          (0.3081,),          28, 1, 10),
+    'FashionMNIST': ((0.2860,),          (0.3530,),          28, 1, 10),
     'CIFAR10':  ((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616), 32, 3, 10),
     'CIFAR100': ((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761), 32, 3, 100),
 }
@@ -108,6 +109,14 @@ def load_dataset(name: str, data_dir: str = 'data/') -> DatasetInfo:
             data_dir, train=True,  download=True, transform=train_transform
         )
         test_split = datasets.MNIST(
+            data_dir, train=False, download=True, transform=test_transform
+        )
+    
+    elif name == 'FashionMNIST':
+        train_split = datasets.FashionMNIST(
+            data_dir, train=True,  download=True, transform=train_transform
+        )
+        test_split = datasets.FashionMNIST(
             data_dir, train=False, download=True, transform=test_transform
         )
 

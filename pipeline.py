@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument('--no_plots', action='store_true', default=None)
     parser.add_argument('--layers', type=str, default=None, help="Comma-separated layer names, e.g. 'fc1' or 'conv2,fc1'")
     parser.add_argument('--use_reconstruction', type=str, default=None, help="Whether or not images should be reconstructed or just original")
+    parser.add_argument('--dataset', default='FashionMNIST',type=str)
     return parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -276,7 +277,10 @@ if __name__ == "__main__":
     if args.layers is not None:
         C.AC_LAYERS = sorted(args.layers.split(','))
     if args.use_reconstruction is not None: C.POISON_CFG.use_reconstruction = args.use_reconstruction
-
+    if args.dataset is not None: 
+        C.DATASET_NAME = args.dataset
+        C.POISON_CFG.dataset_name = args.dataset
+    
     # Recompute paths after any override
     _EXP_ID = (
         f"{C.DATASET_NAME}_rotating"
@@ -296,7 +300,7 @@ if __name__ == "__main__":
     os.makedirs(C.RESULTS_DIR,    exist_ok=True)
     os.makedirs(C.DATASETS_DIR,   exist_ok=True)
     os.makedirs(C.CACHE_DIR,      exist_ok=True)
-
+    
     # Set seeds after any seed override
     torch.manual_seed(C.SEED)
     np.random.seed(C.SEED)
