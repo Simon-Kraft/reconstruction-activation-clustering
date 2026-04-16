@@ -31,7 +31,7 @@ TEST_BATCH_SIZE  = 1000
 # ---------------------------------------------------------------------------
 POISON_CFG = PoisonConfig(
     dataset_name       = DATASET_NAME,
-    poison_rate        = 0.15,
+    poison_rate        = 0.33,
     pretrain_epochs    = 0,
     dlg_iterations     = 75,
     dlg_lr             = 0.1,
@@ -46,7 +46,7 @@ POISON_CFG = PoisonConfig(
 # ---------------------------------------------------------------------------
 # Backdoor model training
 # ---------------------------------------------------------------------------
-TRAIN_EPOCHS = 5
+TRAIN_EPOCHS = 30
 TRAIN_LR     = 1e-3
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ SHOW_PLOTS      = False   # False = skip all visualisation
 # Paths
 # ---------------------------------------------------------------------------
 DATASETS_DIR   = 'datasets/'
-CACHE_DIR      = 'cache/'
+CACHE_DIR      = 'datasets/'
 CHECKPOINT_DIR = 'checkpoints/'
 
 _EXP_ID = (

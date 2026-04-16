@@ -43,3 +43,4 @@ env/
 
 # Ignore log files
 *.log
+logs/

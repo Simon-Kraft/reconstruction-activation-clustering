@@ -1,109 +1,90 @@
-# Backdoor Detection via Activation Clustering with Gradient-Inverted Poison
+# Reconstruction-Based Activation Clustering Backdoor Detection
 
-Extension of Chen et al. (2018) "Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering". Instead of stamping triggers directly onto clean training images, poisoned samples are reconstructed from intercepted gradients using Geiping et al. (2020) gradient inversion — a more realistic federated learning threat model.
+CPSC 461/661 Applied Machine Learning — UNBC Winter 2026  
+Authors: Nazanin Parvizi, Sukirat Singh Dhillon, Simon Kraft
 
----
+## Overview
 
-## Project Structure
+Evaluates Activation Clustering (AC) backdoor detection when poisoned
+training samples are reconstructed from intercepted gradients via the
+Geiping gradient-inversion attack.
+## Structure
 
+## Structure
 ```
 reconstruction-activation-clustering/
 │
-├── pipeline.py                      ← end-to-end orchestration
-├── config.py                        ← all hyperparameters (edit this)
-├── evaluate.py                      ← F1/accuracy metrics and comparison table
-├── run_experiments.sh               ← runs all three poison rates sequentially
+├── pipeline.py            # Main end-to-end pipeline (9-step orchestration)
+├── config.py              # All hyperparameters, paths, and experiment config
+├── evaluate.py            # Detection evaluation: F1, accuracy, result saving
 │
 ├── data/
-│   ├── loader.py                    ← MNIST/CIFAR loading
-│   ├── trigger.py                   ← trigger patch injection
-│   ├── reconstruction.py            ← Geiping gradient inversion
-│   └── builder.py                   ← rotating poison dataset builder
+│   ├── loader.py          # Dataset loading for MNIST and FashionMNIST
+│   ├── builder.py         # Builds rotating poisoned dataset (MixedDataset)
+│   ├── reconstruction.py  # Geiping gradient inversion implementation
+│   └── trigger.py         # Trigger config and injection (3x3 patch)
 │
 ├── models/
-│   ├── cnn.py                       ← PaperCNN (matches Chen et al. architecture)
-│   └── train.py                     ← training loop, ASR verification
+│   ├── cnn.py             # PaperCNN architecture with forward hooks for AC
+│   └── train.py           # Training loop, evaluation, ASR, checkpointing
 │
 ├── activation_clustering/
-│   ├── extractor.py                 ← fc1 activation extraction + raw pixel baseline
-│   ├── clustering.py                ← ICA/PCA + k-means
-│   └── analyzer.py                  ← silhouette, size ratio, flagging
+│   ├── extractor.py       # Extracts fc1 activations and raw pixel features
+│   ├── clustering.py      # ICA/PCA dimensionality reduction + k-means
+│   └── analyzer.py        # Silhouette score, size ratio, poison flagging
 │
 ├── visualization/
-│   └── plots.py                     ← all figures
+│   ├── plots.py           # Activation scatter, silhouette bars, cluster sprites
+│   └── visualize_3d.py    # 3D PCA activation visualisation
 │
-├── datasets/                        ← raw downloads (auto-created)
-├── cache/                           ← poisoned datasets (.pt files)
-├── checkpoints/                     ← trained model weights
-└── results/                         ← plots and metrics per experiment
+├── scripts/
+│   ├── run_mnist.sh                # Core MNIST experiments (Groups 1–2)
+│   ├── run_fashionmnist.sh         # Core FashionMNIST experiments (Groups 1–2)
+│   ├── run_noise_ablation.sh       # Noise + pretraining ablation at p=15%
+│   ├── run_multilayer_eval.sh      # Multi-layer fusion experiments
+│   ├── plot_multilayer_results.py  # Plots AC F1 vs poison rate per layer
+│   └── plot_images.py              # Plots reconstruction figure for report
+│
+├── datasets/              # Generated and downloaded datasets 
+├── checkpoints/           # Trained model checkpoints (auto-created)
+├── logs/                  # Experiment logs and result CSVs (auto-created)
+└── results/               # Per-experiment output figures and json (auto-created)
 ```
 
----
-
-## Pipeline
-
-```
-Step 1  Load dataset
-Step 2  Build rotating poisoned dataset
-          lm → (lm+1) % 10 for all classes simultaneously
-          Reconstruct source images via Geiping gradient inversion
-          Stamp trigger patch, relabel as target class, append to training set
-          Cache to disk for reuse
-Step 3  Train backdoor model (PaperCNN, 10 epochs)
-Step 4  Verify backdoor (ASR per rotation pair)
-Step 5  Extract fc1 activations + raw pixel baseline
-Step 6  Cluster (FastICA → 10D → k-means, k=2)
-Step 7  Analyse clusters (silhouette score, size ratio, flagging)
-Step 8  Evaluate detection (F1 per class, AC vs raw comparison table)
-Step 9  Visualise (scatter plots, silhouette bars, reconstruction grid, cluster sprites)
-```
-
----
-
-## Setup
+## Installation
 
 ```bash
-conda create -n recon-ac python=3.11
-conda activate recon-ac
-pip install torch torchvision numpy scikit-learn matplotlib pillow tqdm
+pip install torch torchvision scikit-learn matplotlib numpy tqdm
 ```
 
----
+Python 3.11 required.
 
-## Usage
+## Running
 
-**Single run** — edit `config.py` then:
+**Single experiment:**
 ```bash
-python pipeline.py
+python pipeline.py --dataset MNIST --poison_rate 0.15
 ```
 
-**Override config from command line:**
+**Full experiment suites:**
 ```bash
-python pipeline.py --poison_rate 0.33 --subsample_rate 0.2 --seed 42
+chmod +x scripts/*.sh
+./scripts/run_mnist.sh
+./scripts/run_fashionmnist.sh
+./scripts/run_noise_ablation.sh
+./scripts/run_multilayer_eval.sh
 ```
 
-**Run all three poison rates sequentially:**
-```bash
-chmod +x run_experiments.sh
-./run_experiments.sh
-```
+**Key flags:**
 
-**Available arguments:**
-```
---poison_rate      float   poison fraction per class (e.g. 0.10, 0.15, 0.33)
---subsample_rate   float   fraction of dataset to use (e.g. 0.2)
---noise_std        float   gradient noise for ablation (0.0 = clean)
---pretrain_epochs  int     epochs to pretrain reconstruction model (0 = untrained)
---seed             int     random seed
---no_plots                 skip visualisation (faster for batch runs)
-```
+| Flag | Default | Description |
+|---|---|---|
+| `--dataset` | `MNIST` | `MNIST` or `FashionMNIST` |
+| `--poison_rate` | `0.33` | Fraction of each class to poison |
+| `--use_reconstruction` | `1` | `1` = Geiping inversion, `0` = BadNets baseline |
+| `--noise_std` | `0.0` | Gaussian noise added to intercepted gradients |
+| `--layers` | `fc1` | Activation layers for AC, e.g. `conv1,fc1` |
+| `--no_plots` | off | Suppress figure generation |
 
-Results are saved to `results/MNIST_rotating_r{rate}_sub{sub}_noise{noise}_pre{pretrain}/`.
-
----
-
-## References
-
-- Chen et al. (2018) — *Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering*
-- Geiping et al. (2020) — *Inverting Gradients — How easy is it to break privacy in federated learning?*
-- Gu et al. (2017) — *BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain*
+Datasets, poisoned caches, and model checkpoints are saved automatically
+and reused on subsequent runs to avoid redundant computation.

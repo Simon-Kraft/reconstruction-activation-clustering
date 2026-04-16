@@ -22,7 +22,7 @@ import sys
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 sys.path.insert(0, PROJECT_ROOT)
 
 import torch
