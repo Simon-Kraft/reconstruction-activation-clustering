@@ -8,7 +8,7 @@ Authors: Nazanin Parvizi, Sukirat Singh Dhillon, Simon Kraft
 Evaluates Activation Clustering (AC) backdoor detection when poisoned
 training samples are reconstructed from intercepted gradients via the
 Geiping gradient-inversion attack.
-## Structure
+
 
 ## Structure
 ```
