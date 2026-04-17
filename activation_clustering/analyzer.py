@@ -446,7 +446,6 @@ def analyze_all_classes(
             f"  {cls:>5}  {r.silhouette_10d:>9.3f}  "
             # f"{r.silhouette_2d:>8.3f}  "
             # f"{r.silhouette:>9.3f}  "
-            f"{used:>6}  "
             f"{r.size_ratio:>10.4f}  "
             f"{'YES' if r.is_poisoned else 'no':>8}"
         )

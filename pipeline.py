@@ -125,14 +125,15 @@ def step_verify(model, dataset_info, test_loader):
     )
     asr = compute_asr(
         model        = model,
-        test_dataset = dataset_info.test,
+        dataset_info = dataset_info,
         trigger      = trigger,
-        source_class = 0,
-        target_class = 1,
         device       = C.DEVICE,
+        # source_class = 0,
+        # target_class = 1,
+        all_classes  = True,
     )
     print(f"  Clean accuracy:            {ca:.2%}")
-    print(f"  Attack success rate (0→1): {asr:.2%}")
+    # print(f"  Attack success rate (0→1): {asr:.2%}")
     if asr < 0.5:
         print("  ⚠️  Low ASR — consider increasing poison_rate or train_epochs.")
     return ca, asr

@@ -35,6 +35,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 from data.trigger import TriggerConfig
+from data.loader import DatasetInfo
 
 
 # ---------------------------------------------------------------------------
@@ -145,61 +146,74 @@ def evaluate(
 
 def compute_asr(
     model:        nn.Module,
-    test_dataset: torch.utils.data.Dataset,
+    dataset_info: DatasetInfo,
     trigger:      TriggerConfig,
-    source_class: int,
-    target_class: int,
     device:       torch.device,
-    batch_size:   int = 256,
+    source_class: int = 0,
+    target_class: int = 1,
+    batch_size:   int  = 256,
+    all_classes:  bool = False,
 ) -> float:
     """
     Compute the Attack Success Rate (ASR) of the backdoor.
 
-    Takes SOURCE class images from the test set, injects the trigger,
-    and measures what fraction the model classifies as TARGET class.
-
-    A high ASR (>90%) confirms the backdoor was successfully learned.
-    A low ASR means the model did not pick up the backdoor — increase
-    poison_rate or train_epochs.
+    If all_classes=True, computes ASR for all rotation pairs
+    (src → (src+1) % n_classes), prints a table, and returns
+    the macro-average ASR. source_class and target_class are
+    ignored in this mode — pass n_classes via source_class.
 
     Args:
         model:        trained backdoor model
-        test_dataset: clean test split (torchvision Dataset)
+        test_dataset: clean test split
         trigger:      TriggerConfig used during poisoning
-        source_class: class whose images will be triggered
-        target_class: class the backdoor should redirect them to
+        source_class: source class (or n_classes if all_classes=True)
+        target_class: target class (ignored if all_classes=True)
         device:       torch device
         batch_size:   inference batch size
+        all_classes:  if True, evaluate all rotation pairs and print table
 
     Returns:
-        ASR as a float in [0, 1]. Higher = backdoor more effective.
+        ASR as a float in [0, 1].
     """
-    model.eval()
+    test_dataset = dataset_info.test
+    n_classes = dataset_info.n_classes
+        
+    def _asr_single(src, tgt):
+        model.eval()
+        triggered_imgs = []
+        for i in range(len(test_dataset)):
+            img, lbl = test_dataset[i]
+            if int(lbl) == src:
+                triggered_imgs.append(trigger.inject(img))
+        if not triggered_imgs:
+            return 0.0
+        imgs_tensor = torch.stack(triggered_imgs)
+        n_correct = 0
+        with torch.no_grad():
+            for i in range(0, len(imgs_tensor), batch_size):
+                batch = imgs_tensor[i:i + batch_size].to(device)
+                preds = model(batch).argmax(dim=1)
+                n_correct += (preds == tgt).sum().item()
+        return n_correct / len(imgs_tensor)
 
-    # Collect all SOURCE class images from the test set
-    triggered_imgs = []
-    for i in range(len(test_dataset)):
-        img, lbl = test_dataset[i]
-        if int(lbl) == source_class:
-            triggered_imgs.append(trigger.inject(img))
+    if not all_classes:
+        return _asr_single(source_class, target_class)
 
-    if len(triggered_imgs) == 0:
-        raise ValueError(
-            f"No samples found for source_class={source_class} in test dataset."
-        )
+    # All rotation pairs
+    asr_per_class = {
+        src: _asr_single(src, (src + 1) % n_classes)
+        for src in range(n_classes)
+    }
+    avg = sum(asr_per_class.values()) / n_classes
 
-    # Stack into a single tensor and run through model in batches
-    imgs_tensor = torch.stack(triggered_imgs)
-    n_correct   = 0
+    print(f"\n  {'Source':>8} {'Target':>8} {'ASR':>10}")
+    print(f"  {'-'*30}")
+    for src, asr in asr_per_class.items():
+        print(f"  {src:>8} {(src+1)%n_classes:>8} {asr:>9.2%}")
+    print(f"  {'-'*30}")
+    print(f"  {'Average':>17} {avg:>9.2%}")
 
-    with torch.no_grad():
-        for i in range(0, len(imgs_tensor), batch_size):
-            batch  = imgs_tensor[i:i + batch_size].to(device)
-            preds  = model(batch).argmax(dim=1)
-            n_correct += (preds == target_class).sum().item()
-
-    asr = n_correct / len(triggered_imgs)
-    return asr
+    return avg
 
 
 # ---------------------------------------------------------------------------
