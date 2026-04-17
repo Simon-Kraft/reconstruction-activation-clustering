@@ -332,7 +332,7 @@ def plot_reconstructed_samples(
     mixed_dataset: MixedDataset,
     dataset_info:  DatasetInfo,
     results_dir:   str  = 'results/',
-    n_per_pair:    int  = 4,
+    n_per_pair:    int  = 2,
     save:          bool = True,
     show:         bool = True,
 ) -> None:

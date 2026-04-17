@@ -44,3 +44,5 @@ env/
 # Ignore log files
 *.log
 logs/
+
+plot_*.py

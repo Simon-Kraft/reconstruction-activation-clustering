@@ -249,18 +249,18 @@ def step_visualise(ac_extraction, ac_cluster_map, ac_analysis,
         mixed_dataset = mixed_dataset,
         dataset_info  = dataset_info,
         results_dir   = C.RESULTS_DIR,
-        n_per_pair    = 4,
+        n_per_pair    = 2,
         save          = True,
         show          = C.SHOW_PLOTS,
     )
-    plot_cluster_sprites(
-        mixed_dataset = mixed_dataset,
-        cluster_map   = ac_cluster_map,
-        dataset_info  = dataset_info,
-        results_dir   = C.RESULTS_DIR,
-        save          = True,
-        show          = C.SHOW_PLOTS,
-    )
+    # plot_cluster_sprites(
+    #     mixed_dataset = mixed_dataset,
+    #     cluster_map   = ac_cluster_map,
+    #     dataset_info  = dataset_info,
+    #     results_dir   = C.RESULTS_DIR,
+    #     save          = True,
+    #     show          = C.SHOW_PLOTS,
+    # )
 
 # ---------------------------------------------------------------------------
 # Main

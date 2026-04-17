@@ -364,7 +364,7 @@ def analyze_class(
     #   Relative size alone can flag classes with natural imbalance.
     #   Together they are much more specific: a class must have both a
     #   well-separated 2-cluster structure AND a suspiciously small cluster.
-    is_poisoned = sil_flagged or size_flagged
+    is_poisoned = sil_flagged and size_flagged
     if cfg.run_exre and exre_flagged is not None:
         is_poisoned = is_poisoned and exre_flagged
 
@@ -438,14 +438,14 @@ def analyze_all_classes(
     
     if label:
         print(f"\n  {label}")
-    print(f"\n  {'class':>5}  {'sil(10D)':>9}  {'sil(2D)':>8}  {'sil(used)':>9}  {'used':>6}  {'size_ratio':>10}  {'flagged':>8}")
-    print(f"  {'-----':>5}  {'-'*9}  {'-'*8}  {'-'*9}  {'-'*6}  {'-'*10}  {'-'*8}")
+    print(f"\n  {'class':>5}  {'sil(10D)':>9}  {'size_ratio':>10}  {'flagged':>8}")
+    print(f"  {'-----':>5}  {'-'*9} {'-'*10}  {'-'*8}")
     for cls, r in sorted(results.items()):
         used = '2D' if r.silhouette_2d > r.silhouette_10d else '10D'
         print(
             f"  {cls:>5}  {r.silhouette_10d:>9.3f}  "
-            f"{r.silhouette_2d:>8.3f}  "
-            f"{r.silhouette:>9.3f}  "
+            # f"{r.silhouette_2d:>8.3f}  "
+            # f"{r.silhouette:>9.3f}  "
             f"{used:>6}  "
             f"{r.size_ratio:>10.4f}  "
             f"{'YES' if r.is_poisoned else 'no':>8}"
