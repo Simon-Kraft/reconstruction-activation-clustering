@@ -38,8 +38,8 @@ from sklearn.metrics import (
     recall_score,
 )
 
-from activation_clustering.extractor import ExtractionResult
-from activation_clustering.analyzer  import AnalysisResult
+from clustering.extractor import ExtractionResult
+from clustering.analyzer  import AnalysisResult
 
 
 # ---------------------------------------------------------------------------

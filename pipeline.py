@@ -21,12 +21,12 @@ from data                            import load_dataset, build_poisoned_dataset
 from data.trigger                    import TriggerConfig
 from models                          import PaperCNN, train, compute_asr, save_model
 from models.train                    import evaluate, load_model
-from activation_clustering           import (
+from clustering           import (
     extract_activations,
     cluster_all_classes,
     analyze_all_classes,
 )
-from activation_clustering.extractor import extract_raw_pixels
+from clustering.extractor import extract_raw_pixels
 from evaluate                        import evaluate_detection, print_combined_table
 from visualization                   import (
     plot_activation_scatter,
@@ -301,15 +301,14 @@ if __name__ == "__main__":
         f"_pre{C.POISON_CFG.pretrain_epochs}"
         f"_seed{C.SEED}"
     )
-    C.CACHE_DATASET_PATH  = C.CACHE_DIR      + f'data_{_EXP_ID}.pt'
-    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'model_{_EXP_ID}.pt'
+    C.CACHE_DATASET_PATH  = C.DATASETS_DIR   + f'{_EXP_ID}.pt'
+    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'{_EXP_ID}.pt'
     C.RESULTS_DIR         = f'results/{_EXP_ID}/'
 
     # ── Create directories ────────────────────────────────────────────────
     os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
     os.makedirs(C.RESULTS_DIR,    exist_ok=True)
     os.makedirs(C.DATASETS_DIR,   exist_ok=True)
-    os.makedirs(C.CACHE_DIR,      exist_ok=True)
 
     # ── Set seeds ─────────────────────────────────────────────────────────
     torch.manual_seed(C.SEED)

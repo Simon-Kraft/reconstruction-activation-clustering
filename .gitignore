@@ -45,4 +45,6 @@ env/
 *.log
 logs/
 
+models/
+
 plot_*.py

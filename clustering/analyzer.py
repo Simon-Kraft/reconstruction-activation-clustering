@@ -1,5 +1,5 @@
 """
-activation_clustering/analyzer.py — Cluster analysis and poison detection.
+clustering/analyzer.py — Cluster analysis and poison detection.
 
 Implements the three detection methods from Chen et al. (2018), Section 5:
 
@@ -40,8 +40,8 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import silhouette_score
 from typing import Optional
 
-from activation_clustering.extractor import ExtractionResult
-from activation_clustering.clustering import ClusterResult
+from clustering.extractor import ExtractionResult
+from clustering.clustering import ClusterResult
 
 
 # ---------------------------------------------------------------------------

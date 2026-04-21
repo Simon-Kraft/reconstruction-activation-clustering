@@ -45,9 +45,9 @@ from sklearn.cluster import KMeans
 
 from data.builder    import MixedDataset
 from data.loader     import DatasetInfo
-from activation_clustering.extractor  import ExtractionResult
-from activation_clustering.clustering import ClusterResult
-from activation_clustering.analyzer   import AnalysisResult
+from clustering.extractor  import ExtractionResult
+from clustering.clustering import ClusterResult
+from clustering.analyzer   import AnalysisResult
 
 
 # ---------------------------------------------------------------------------

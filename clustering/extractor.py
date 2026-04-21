@@ -1,5 +1,5 @@
 """
-activation_clustering/extractor.py — Extract last-hidden-layer activations.
+clustering/extractor.py — Extract last-hidden-layer activations.
 
 Responsibilities:
   - Run all training samples through the trained backdoor model

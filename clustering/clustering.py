@@ -1,5 +1,5 @@
 """
-activation_clustering/clustering.py — Dimensionality reduction and k-means.
+clustering/clustering.py — Dimensionality reduction and k-means.
 
 Responsibilities:
   - Reduce activation dimensionality via ICA or PCA before clustering
@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from sklearn.decomposition import FastICA, PCA
 from sklearn.cluster import KMeans
 
-from activation_clustering.extractor import ExtractionResult
+from clustering.extractor import ExtractionResult
 
 
 # ---------------------------------------------------------------------------

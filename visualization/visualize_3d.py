@@ -37,9 +37,9 @@ from data.builder               import MixedDataset
 from data.loader                import load_dataset
 from models.cnn                 import PaperCNN
 from models.train               import load_model
-from activation_clustering.extractor  import extract_activations
-from activation_clustering.clustering import cluster_all_classes
-from activation_clustering.analyzer   import analyze_all_classes
+from clustering.extractor  import extract_activations
+from clustering.clustering import cluster_all_classes
+from clustering.analyzer   import analyze_all_classes
 
 
 # ── Colour palette (matches plots.py) ────────────────────────────────────────

@@ -8,7 +8,7 @@ is controlled via argparse in pipeline.py.
 
 import torch
 from data.builder                  import PoisonConfig
-from activation_clustering.analyzer import AnalysisConfig
+from clustering.analyzer import AnalysisConfig
 
 # ---------------------------------------------------------------------------
 # Device and reproducibility
@@ -22,7 +22,6 @@ SEED   = 42
 TRAIN_BATCH_SIZE = 64
 TEST_BATCH_SIZE  = 1000
 DATASETS_DIR     = 'datasets/'
-CACHE_DIR        = 'cache/'
 CHECKPOINT_DIR   = 'checkpoints/'
 
 # ---------------------------------------------------------------------------
@@ -76,6 +75,6 @@ ANALYSIS_CFG = AnalysisConfig(
 # ---------------------------------------------------------------------------
 # Paths — recomputed in pipeline.py after argparse overrides
 # ---------------------------------------------------------------------------
-CACHE_DATASET_PATH  = None
 BACKDOOR_MODEL_PATH = None
+CACHE_DATASET_PATH  = None
 RESULTS_DIR         = None
