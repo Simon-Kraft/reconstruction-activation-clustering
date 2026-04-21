@@ -28,13 +28,13 @@ CHECKPOINT_DIR   = 'checkpoints/'
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
-TRAIN_EPOCHS = 30
+TRAIN_EPOCHS = 10
 TRAIN_LR     = 1e-3
 
 # ---------------------------------------------------------------------------
 # Activation Clustering
 # ---------------------------------------------------------------------------
-AC_N_COMPONENTS = 10
+AC_N_COMPONENTS = 2
 AC_METHOD       = 'ica'
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ SHOW_PLOTS = False
 # Defaults — overridden by argparse in pipeline.py
 # ---------------------------------------------------------------------------
 DATASET_NAME = 'MNIST'
-AC_LAYERS    = ['fc1']
+AC_LAYER     = 'fc1'
 
 POISON_CFG = PoisonConfig(
     dataset_name       = DATASET_NAME,
@@ -60,7 +60,7 @@ POISON_CFG = PoisonConfig(
     data_dir           = DATASETS_DIR,
     seed               = SEED,
     use_reconstruction = True,
-    replace_originals  = True,
+    replace_originals  = False,
 )
 
 ANALYSIS_CFG = AnalysisConfig(
@@ -79,4 +79,3 @@ ANALYSIS_CFG = AnalysisConfig(
 CACHE_DATASET_PATH  = None
 BACKDOOR_MODEL_PATH = None
 RESULTS_DIR         = None
-_LAYER_ID           = None

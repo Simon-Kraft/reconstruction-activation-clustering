@@ -59,7 +59,7 @@ def parse_args():
                         help='1 = Geiping inversion, 0 = BadNets baseline')
     parser.add_argument('--replace_originals', action='store_true',
                         help='Replace reconstructed source images instead of appending')
-    parser.add_argument('--layers',            type=str,   default=None,
+    parser.add_argument('--layer',            type=str,   default=None,
                         help="Comma-separated layer names, e.g. 'fc1' or 'conv1,fc1'")
     parser.add_argument('--seed',              type=int,   default=None,
                         help='Random seed')
@@ -158,7 +158,7 @@ def step_extract(model, mixed_dataset):
     ac_extraction  = extract_activations(
         model       = model,
         dataset     = mixed_dataset,
-        layer_names = C.AC_LAYERS,
+        layer_name  = C.AC_LAYER,
         device      = C.DEVICE,
     )
     raw_extraction = extract_raw_pixels(mixed_dataset)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
     if args.pretrain_epochs    is not None: C.POISON_CFG.pretrain_epochs    = args.pretrain_epochs
     if args.use_reconstruction is not None: C.POISON_CFG.use_reconstruction = args.use_reconstruction
     if args.replace_originals:              C.POISON_CFG.replace_originals  = True
-    if args.layers             is not None: C.AC_LAYERS = sorted(args.layers.split(','))
+    if args.layer              is not None: C.AC_LAYER = args.layer
     if args.seed               is not None: C.SEED      = args.seed
     if args.no_plots:                       C.SHOW_PLOTS = False
 
@@ -299,11 +299,11 @@ if __name__ == "__main__":
         f"_replace{int(C.POISON_CFG.replace_originals)}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
+        f"_seed{C.SEED}"
     )
-    C.CACHE_DATASET_PATH  = C.CACHE_DIR      + f'mixed_{_EXP_ID}.pt'
-    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'backdoor_model_{_EXP_ID}.pt'
-    C._LAYER_ID           = '+'.join(C.AC_LAYERS)
-    C.RESULTS_DIR         = f'results/{_EXP_ID}_layers_{C._LAYER_ID}/'
+    C.CACHE_DATASET_PATH  = C.CACHE_DIR      + f'data_{_EXP_ID}.pt'
+    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'model_{_EXP_ID}.pt'
+    C.RESULTS_DIR         = f'results/{_EXP_ID}/'
 
     # ── Create directories ────────────────────────────────────────────────
     os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     print(f"  replace_originals = {C.POISON_CFG.replace_originals}")
     print(f"  pretrain          = {C.POISON_CFG.pretrain_epochs} epochs")
     print(f"  noise_std         = {C.POISON_CFG.noise_std}")
-    print(f"  layers            = {C.AC_LAYERS}")
+    print(f"  layer             = {C.AC_LAYER}")
     print("=" * 60)
 
     dataset_info, test_loader = step_load_dataset()

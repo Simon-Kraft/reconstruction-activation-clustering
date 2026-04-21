@@ -29,8 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from dataclasses import dataclass, field
-from torch.utils.data import DataLoader
+from dataclasses import dataclass
 
 from models.cnn import BaseACModel
 
@@ -81,29 +80,34 @@ class ExtractionResult:
 # ---------------------------------------------------------------------------
 
 def extract_activations(
-    model:       BaseACModel,
-    dataset:     torch.utils.data.Dataset,
-    layer_names:  list[str]   = ['fc1'],
-    batch_size:  int   = 256,
-    device:      torch.device = torch.device('cpu'),
+    model:      BaseACModel,
+    dataset:    torch.utils.data.Dataset,
+    layer_name: str           = 'fc1',
+    batch_size: int           = 256,
+    device:     torch.device  = torch.device('cpu'),
 ) -> ExtractionResult:
     """
-    Extract activations from one or more named layers for every sample.
-    If multiple layers are given, their outputs are flattened and
-    concatenated per sample before grouping by class.
+    Extract activations from a single named layer for every sample.
+
+    Args:
+        model:      trained PaperCNN with forward hooks registered
+        dataset:    MixedDataset with .labels and .is_poisoned attributes
+        layer_name: name of the layer to extract, e.g. 'fc1'
+        batch_size: inference batch size
+        device:     torch device
+
+    Returns:
+        ExtractionResult with activations grouped by class label.
     """
-    # Validate all requested layers upfront
-    for name in layer_names:
-        if name not in model.LAYER_REGISTRY:
-            available = list(model.LAYER_REGISTRY.keys())
-            raise ValueError(
-                f"Layer '{name}' not found in model. "
-                f"Available: {available}"
-            )
+    # Validate requested layer
+    if layer_name not in model.LAYER_REGISTRY:
+        available = list(model.LAYER_REGISTRY.keys())
+        raise ValueError(
+            f"Layer '{layer_name}' not found in model. "
+            f"Available: {available}"
+        )
 
     # --- Collect all images, labels, flags from the dataset ---------------
-    # We do this up front rather than using a DataLoader so we can keep
-    # the poison flags aligned with the images without a custom collate_fn
     all_labels = np.array(dataset.labels,      dtype=np.int64)
     all_flags  = np.array(dataset.is_poisoned, dtype=bool)
     all_imgs   = torch.stack([dataset[i][0] for i in range(len(dataset))])
@@ -120,19 +124,15 @@ def extract_activations(
             model(batch)
             acts  = model.get_activations()
 
-            # Collect, flatten, and concatenate each requested layer
-            parts = []
-            for name in layer_names:
-                act = acts[name]             # (B, C, H, W) or (B, D)
-                if act.dim() == 4:
-                    act = act.mean(dim=[2, 3])  # global avg pool → (B, C)
-                parts.append(act.cpu())
+            act = acts[layer_name]        # (B, C, H, W) or (B, D)
+            if act.dim() == 4:
+                act = act.mean(dim=[2, 3])  # global avg pool → (B, C)
 
-            combined = torch.cat(parts, dim=1)  # (B, total_D)
-            all_acts.append(combined.numpy())
+            all_acts.append(act.cpu().numpy())
 
-    acts_matrix = np.vstack(all_acts)
+    acts_matrix = np.vstack(all_acts)   # (N_total, D)
 
+    # --- Group by class ---------------------------------------------------
     activations: dict[int, np.ndarray] = {}
     labels:      dict[int, np.ndarray] = {}
     flags:       dict[int, np.ndarray] = {}
@@ -143,20 +143,23 @@ def extract_activations(
         labels[cls]      = all_labels[mask]
         flags[cls]       = all_flags[mask]
 
-    layer_str = '+'.join(layer_names)
-    result    = ExtractionResult(
+    result = ExtractionResult(
         activations = activations,
         labels      = labels,
         flags       = flags,
-        layer_name  = layer_str,
+        layer_name  = layer_name,
         n_classes   = n_classes,
     )
     result.class_summary()
     return result
 
 
+# ---------------------------------------------------------------------------
+# Raw pixel baseline
+# ---------------------------------------------------------------------------
+
 def extract_raw_pixels(
-    dataset:    torch.utils.data.Dataset,
+    dataset: torch.utils.data.Dataset,
 ) -> ExtractionResult:
     """
     Extract flattened raw pixel values instead of model activations.
@@ -176,9 +179,9 @@ def extract_raw_pixels(
         extract_activations() so the full clustering + evaluation
         pipeline works unchanged.
     """
-    all_labels = np.array(dataset.labels,      dtype=np.int64)
-    all_flags  = np.array(dataset.is_poisoned, dtype=bool)
-    all_imgs   = torch.stack([dataset[i][0] for i in range(len(dataset))])
+    all_labels  = np.array(dataset.labels,      dtype=np.int64)
+    all_flags   = np.array(dataset.is_poisoned, dtype=bool)
+    all_imgs    = torch.stack([dataset[i][0] for i in range(len(dataset))])
 
     # Flatten pixels: (N, C*H*W)
     flat_pixels = all_imgs.view(len(all_imgs), -1).numpy().astype(np.float32)
@@ -194,12 +197,10 @@ def extract_raw_pixels(
         labels[cls]      = all_labels[mask]
         flags[cls]       = all_flags[mask]
 
-    result = ExtractionResult(
+    return ExtractionResult(
         activations = activations,
         labels      = labels,
         flags       = flags,
         layer_name  = 'raw_pixels',
         n_classes   = n_classes,
     )
-
-    return result
