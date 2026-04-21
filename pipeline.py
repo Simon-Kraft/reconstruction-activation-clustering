@@ -35,10 +35,6 @@ from visualization                   import (
     plot_cluster_sprites,
 )
 
-torch.manual_seed(C.SEED)
-np.random.seed(C.SEED)
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Backdoor detection pipeline — rotating poison + AC'
