@@ -55,19 +55,22 @@ class PoisonConfig:
         the rotation is fixed.
 
     Attributes:
-        dataset_name:    'MNIST', 'CIFAR10', or 'CIFAR100'
-        poison_rate:     fraction of EACH class to poison (0.0–1.0)
-                         e.g. 0.10 = 10% of each class, matching Table 1
-        pretrain_epochs: epochs to pretrain reconstruction model (0 = random)
-        dlg_iterations:  Geiping optimisation steps per image
-        dlg_lr:          Adam learning rate for reconstruction
-        dlg_tv_weight:   total variation regularisation weight
-        noise_std:       Gaussian noise std on intercepted gradients
-                         0.0 = clean reconstruction, >0 = degraded
-        subsample_rate:  fraction of full dataset to use (1.0 = full)
-                         speeds up experiments without changing poison rate
-        data_dir:        directory for torchvision downloads
-        seed:            random seed
+        dataset_name:       'MNIST', 'FashionMNIST', 'CIFAR10'
+        poison_rate:        fraction of EACH class to poison (0.0–1.0)
+        pretrain_epochs:    epochs to pretrain reconstruction model (0 = random)
+        dlg_iterations:     Geiping optimisation steps per image
+        dlg_lr:             Adam learning rate for reconstruction
+        dlg_tv_weight:      total variation regularisation weight
+        noise_std:          Gaussian noise std on intercepted gradients
+        subsample_rate:     fraction of full dataset to use (1.0 = full)
+        data_dir:           directory for torchvision downloads
+        seed:               random seed
+        use_reconstruction: 1 = Geiping inversion, 0 = BadNets baseline
+        replace_originals:  if True, remove the original source images that
+                            were selected for poisoning from the clean set,
+                            so the poisoned reconstruction replaces rather
+                            than appends. Results in exactly poison_rate %
+                            of the final dataset being poisoned.
     """
     dataset_name:       str
     poison_rate:        float
@@ -79,7 +82,8 @@ class PoisonConfig:
     subsample_rate:     float = 1.0
     data_dir:           str   = 'data/'
     seed:               int   = 42
-    use_reconstruction: int = 1
+    use_reconstruction: int   = 1
+    replace_originals:  bool  = False
 
     def __post_init__(self):
         if not 0.0 < self.poison_rate <= 1.0:
@@ -102,7 +106,8 @@ class PoisonConfig:
             f"rate={self.poison_rate:.0%}  "
             f"pretrain={self.pretrain_epochs}ep  "
             f"noise_std={self.noise_std}  "
-            f"subsample={self.subsample_rate:.0%}"
+            f"subsample={self.subsample_rate:.0%}  "
+            f"replace_originals={self.replace_originals}"
         )
 
 
@@ -114,19 +119,13 @@ class MixedDataset(Dataset):
     """
     Full training dataset with rotating backdoor poison injected.
 
-    For each class lm, p% of class lm samples have been reconstructed
-    via Geiping gradient inversion, stamped with the trigger, and
-    appended to the dataset labelled as class (lm+1)%n. The original
-    source samples remain intact — only copies are poisoned.
-
     Attributes:
-        data        (list[Tensor]):       image tensors (C, H, W)
-        labels      (list[int]):          class labels
-        is_poisoned (list[bool]):         True = reconstructed + triggered
-        source_labels (list[int|None]):   for poisoned samples, the original
-                                          source class. None for clean samples.
-        orig_images (list[Tensor|None]):  original image before reconstruction
-        n_poison    (int):                total poisoned count
+        data          (list[Tensor]):      image tensors (C, H, W)
+        labels        (list[int]):         class labels
+        is_poisoned   (list[bool]):        True = reconstructed + triggered
+        source_labels (list[int|None]):    for poisoned samples, original class
+        orig_images   (list[Tensor|None]): original image before reconstruction
+        n_poison      (int):               total poisoned count
     """
 
     def __init__(
@@ -222,12 +221,12 @@ class MixedDataset(Dataset):
 # ---------------------------------------------------------------------------
 
 def _pretrain_model(
-    model:    nn.Module,
-    dataset:  DatasetInfo,
-    epochs:   int,
-    device:   torch.device,
-    lr:       float = 1e-3,
-    batch_size: int = 64,
+    model:      nn.Module,
+    dataset:    DatasetInfo,
+    epochs:     int,
+    device:     torch.device,
+    lr:         float = 1e-3,
+    batch_size: int   = 64,
 ) -> None:
     print(f"Pretraining reconstruction model ({epochs} epochs)...")
     loader    = DataLoader(dataset.train, batch_size=batch_size, shuffle=True)
@@ -253,33 +252,34 @@ def _pretrain_model(
 # ---------------------------------------------------------------------------
 
 def _reconstruct_pair(
-    source_class: int,
-    target_class: int,
-    poison_rate:  float,
-    keep_list:    list,
-    kept_labels:  list,
-    train_raw:    Dataset,
-    model:        nn.Module,
-    recon_cfg:    ReconConfig,
-    trigger:      TriggerConfig,
-    device:       torch.device,
-    rng:          np.random.Generator,
+    source_class:       int,
+    target_class:       int,
+    poison_rate:        float,
+    keep_list:          list,
+    kept_labels:        list,
+    train_raw:          Dataset,
+    model:              nn.Module,
+    recon_cfg:          ReconConfig,
+    trigger:            TriggerConfig,
+    device:             torch.device,
+    rng:                np.random.Generator,
     use_reconstruction: bool,
-) -> tuple[list, list, list, list]:
+) -> tuple[list, list, list, list, list]:
     """
     Reconstruct and poison one (source → target) pair.
 
-    Returns four parallel lists:
-        recon_imgs, recon_labels, recon_flags, recon_orig
-    ready to be appended to the dataset.
+    Returns five parallel lists:
+        recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs
+    The poison_idxs list contains the original dataset indices that were
+    selected for poisoning — used by the caller to exclude them from the
+    clean set when replace_originals=True.
     """
-    # Select source class samples from the working set
-    source_in_keep = [
+    source_in_keep   = [
         i for i, l in zip(keep_list, kept_labels)
         if l == source_class
     ]
     n_target_in_keep = sum(1 for l in kept_labels if l == target_class)
-    n_poison = max(1, int(round(poison_rate * n_target_in_keep)))
+    n_poison         = max(1, int(round(poison_rate * n_target_in_keep)))
 
     if len(source_in_keep) < n_poison:
         raise ValueError(
@@ -302,7 +302,6 @@ def _reconstruct_pair(
         img, label = train_raw[idx]
         if use_reconstruction == 1:
             grads = intercept_gradients(model, img, int(label), dev=device)
-
             recon_img, _ = reconstruct(
                 model            = model,
                 target_gradients = grads,
@@ -311,7 +310,7 @@ def _reconstruct_pair(
                 dev              = device,
             )
         else:
-            recon_img = img.clone().reshape([1, *img.shape])   # use original directly
+            recon_img = img.clone().reshape([1, *img.shape])
 
         triggered = trigger.inject(recon_img.squeeze(0).cpu())
 
@@ -320,7 +319,7 @@ def _reconstruct_pair(
         recon_flags.append(True)
         recon_orig.append(img)
 
-    return recon_imgs, recon_labels, recon_flags, recon_orig
+    return recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs
 
 
 # ---------------------------------------------------------------------------
@@ -336,20 +335,18 @@ def build_poisoned_dataset(
     """
     Build a rotating-poison mixed dataset matching Chen et al. (2018).
 
-    For each class lm in 0..n_classes-1:
-        - Select poison_rate % of class lm samples from the working set
-        - Reconstruct each via Geiping gradient inversion
-        - Stamp the backdoor trigger
-        - Append as additional class (lm+1)%n samples
-        - Leave original class lm samples intact
+    If cfg.replace_originals is False (default):
+        Poisoned copies are appended — original source images remain in
+        the clean set. This matches Chen et al.'s original setup.
 
-    All 10 classes receive poisoned samples simultaneously.
-    The original samples are never removed — poisoned copies are appended.
-    This keeps class sizes roughly balanced and matches the paper setup.
+    If cfg.replace_originals is True:
+        The original source images selected for poisoning are removed from
+        the clean set and replaced by their reconstructed+triggered versions.
+        This means exactly poison_rate % of the final dataset is poisoned.
 
     Args:
         cfg:        PoisonConfig
-        model:      PaperCNN for gradient interception (untrained or pretrained)
+        model:      PaperCNN for gradient interception
         device:     torch device
         cache_path: path to cache/load the built dataset
 
@@ -413,26 +410,19 @@ def build_poisoned_dataset(
     keep_list   = sorted(keep_set)
     kept_labels = [all_labels[i] for i in keep_list]
 
-    # --- Step 6: Reconstruct all 10 pairs ---------------------------------
+    # --- Step 6: Reconstruct all pairs ------------------------------------
     print(f"\nRotating poison: {n_classes} pairs  "
           f"rate={cfg.poison_rate:.0%} per class")
 
     rng = np.random.default_rng(cfg.seed)
 
-    # Collect all clean samples first
-    data, labels, is_poisoned, source_labels, orig_images = [], [], [], [], []
+    # Run reconstruction for all pairs first, collecting poisoned indices
+    all_r_imgs, all_r_labels  = [], []
+    all_r_flags, all_r_orig   = [], []
+    all_r_src, poisoned_idxs  = [], set()
 
-    for i in keep_list:
-        img, lbl = train_raw[i]
-        data.append(img)
-        labels.append(int(lbl))
-        is_poisoned.append(False)
-        source_labels.append(None)
-        orig_images.append(None)
-
-    # Then append poisoned samples for each pair
     for source_class, target_class in pairs:
-        r_imgs, r_labels, r_flags, r_orig = _reconstruct_pair(
+        r_imgs, r_labels, r_flags, r_orig, p_idxs = _reconstruct_pair(
             source_class       = source_class,
             target_class       = target_class,
             poison_rate        = cfg.poison_rate,
@@ -444,18 +434,41 @@ def build_poisoned_dataset(
             trigger            = trigger,
             device             = device,
             rng                = rng,
-            use_reconstruction = cfg.use_reconstruction
+            use_reconstruction = cfg.use_reconstruction,
         )
-        data.extend(r_imgs)
-        labels.extend(r_labels)
-        is_poisoned.extend(r_flags)
-        source_labels.extend([source_class] * len(r_imgs))
-        orig_images.extend(r_orig)
+        all_r_imgs.extend(r_imgs)
+        all_r_labels.extend(r_labels)
+        all_r_flags.extend(r_flags)
+        all_r_orig.extend(r_orig)
+        all_r_src.extend([source_class] * len(r_imgs))
+        poisoned_idxs.update(p_idxs)
 
+        mode = "replacing" if cfg.replace_originals else "appending"
         print(f"  {source_class}→{target_class}: "
-              f"{len(r_imgs)} poisoned samples appended")
+              f"{len(r_imgs)} poisoned samples ({mode})")
 
-    # --- Step 7: Assemble and return --------------------------------------
+    # --- Step 7: Build clean set ------------------------------------------
+    data, labels, is_poisoned, source_labels, orig_images = [], [], [], [], []
+
+    for i in keep_list:
+        # Skip originals that were selected for poisoning if replace mode
+        if cfg.replace_originals and i in poisoned_idxs:
+            continue
+        img, lbl = train_raw[i]
+        data.append(img)
+        labels.append(int(lbl))
+        is_poisoned.append(False)
+        source_labels.append(None)
+        orig_images.append(None)
+
+    # --- Step 8: Add poisoned samples -------------------------------------
+    data.extend(all_r_imgs)
+    labels.extend(all_r_labels)
+    is_poisoned.extend(all_r_flags)
+    source_labels.extend(all_r_src)
+    orig_images.extend(all_r_orig)
+
+    # --- Step 9: Assemble and return --------------------------------------
     mixed = MixedDataset(
         data          = data,
         labels        = labels,
