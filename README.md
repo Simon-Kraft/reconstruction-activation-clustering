@@ -81,7 +81,7 @@ chmod +x scripts/*.sh
 |---|---|---|
 | `--dataset` | `MNIST` | `MNIST` or `FashionMNIST` |
 | `--poison_rate` | `0.33` | Fraction of each class to poison |
-| `--use_reconstruction` | `1` | `1` = Geiping inversion, `0` = BadNets baseline |
+| `--reconstruction_method` | `geiping` | `geiping` = cosine inversion, `dlg` = L2 inversion, `badnets` = no reconstruction |
 | `--noise_std` | `0.0` | Gaussian noise added to intercepted gradients |
 | `--layers` | `fc1` | Activation layers for AC, e.g. `conv1,fc1` |
 | `--no_plots` | off | Suppress figure generation |

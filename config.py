@@ -58,8 +58,9 @@ POISON_CFG = PoisonConfig(
     subsample_rate     = 0.25,
     data_dir           = DATASETS_DIR,
     seed               = SEED,
-    use_reconstruction = True,
+    reconstruction_method = 'geiping',
     replace_originals  = False,
+    verbose            = False,
 )
 
 ANALYSIS_CFG = AnalysisConfig(

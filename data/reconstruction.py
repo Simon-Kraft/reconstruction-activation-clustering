@@ -25,6 +25,7 @@ Reference:
 
 from __future__ import annotations
 
+import math
 import torch
 import torch.nn.functional as F
 from dataclasses import dataclass, field
@@ -102,9 +103,8 @@ def _cosine_loss(
     Computes 1 - cos(dummy_grads, target_grads) treating all parameter
     gradients as one concatenated vector. Returns 0 when perfectly aligned.
 
-    This is the key improvement over the original DLG Euclidean loss:
-    because it ignores gradient magnitude, it works on both untrained
-    and trained models.
+    Unlike the DLG L2 loss, this ignores gradient magnitude so it works
+    on both untrained and trained models.
     """
     dot    = sum(
         (dg * tg.to(dg.device)).sum()
@@ -113,6 +113,22 @@ def _cosine_loss(
     norm_d = torch.sqrt(sum((dg ** 2).sum() for dg in dummy_grads) + 1e-8)
     norm_t = torch.sqrt(sum((tg ** 2).sum() for tg in target_grads) + 1e-8)
     return 1.0 - dot / (norm_d * norm_t)
+
+
+def _dlg_loss(
+    dummy_grads:  Tuple[torch.Tensor, ...],
+    target_grads: List[torch.Tensor],
+) -> torch.Tensor:
+    """
+    L2 gradient distance loss (Zhu et al., 2019, DLG Eq. 1).
+
+    Sum of squared differences between dummy and target gradients.
+    Sensitive to gradient magnitude — works best on untrained models.
+    """
+    return sum(
+        ((dg - tg.to(dg.device)) ** 2).sum()
+        for dg, tg in zip(dummy_grads, target_grads)
+    )
 
 
 def _tv_loss(img: torch.Tensor) -> torch.Tensor:
@@ -132,6 +148,31 @@ def _tv_loss(img: torch.Tensor) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def compute_psnr(
+    reconstructed: torch.Tensor,
+    original:      torch.Tensor,
+    data_range:    float,
+) -> float:
+    """
+    Peak Signal-to-Noise Ratio between a reconstructed and original image.
+
+    PSNR = 10 * log10(data_range^2 / MSE)
+
+    Args:
+        reconstructed: reconstructed image tensor (any shape matching original)
+        original:      ground-truth image tensor
+        data_range:    maximum possible pixel value range, i.e.
+                       clamp_range[1] - clamp_range[0]
+
+    Returns:
+        PSNR in dB. Returns inf if MSE is zero (perfect reconstruction).
+    """
+    mse = ((reconstructed - original.to(reconstructed.device)) ** 2).mean().item()
+    if mse == 0.0:
+        return float('inf')
+    return 10.0 * math.log10(data_range ** 2 / mse)
+
 
 def intercept_gradients(
     model: torch.nn.Module,
@@ -269,6 +310,103 @@ def reconstruct(
             dummy_img.data.clamp_(cfg.clamp_range[0], cfg.clamp_range[1])
 
         loss_val = float(loss.detach().cpu())
+        if loss_val < best_loss:
+            best_loss = loss_val
+            best_img  = dummy_img.detach().clone()
+
+        if cfg.verbose and (
+            it % max(1, cfg.iterations // 10) == 0
+            or it == cfg.iterations - 1
+        ):
+            print(f"  iter {it+1:4d}/{cfg.iterations}  "
+                  f"loss={loss_val:.6f}  best={best_loss:.6f}")
+
+    recon = best_img.clamp(cfg.clamp_range[0], cfg.clamp_range[1])
+    return recon, best_loss
+
+
+def reconstruct_dlg(
+    model:            torch.nn.Module,
+    target_gradients: List[torch.Tensor],
+    img_shape:        torch.Size,
+    cfg:              ReconConfig,
+    dev:              Optional[torch.device] = None,
+) -> Tuple[torch.Tensor, float]:
+    """
+    Reconstruct an image from intercepted gradients using DLG (Zhu et al., 2019).
+
+    Optimises a dummy image by minimising:
+        loss = sum_l || grad(dummy)_l - target_grad_l ||^2
+               + tv_weight * TV(dummy)
+
+    Uses L-BFGS (as in the original DLG paper) rather than signed Adam.
+
+    Args:
+        model:            reconstruction model (same architecture as
+                          backdoor model, untrained or pretrained)
+        target_gradients: intercepted gradients from intercept_gradients()
+        img_shape:        shape of the image to reconstruct, WITH batch dim
+                          e.g. torch.Size([1, 1, 28, 28]) for one MNIST image
+        cfg:              ReconConfig with all reconstruction hyperparameters
+        dev:              device (inferred from model if None)
+
+    Returns:
+        (reconstructed_image, final_loss)
+        reconstructed_image: Tensor of shape img_shape, clamped to cfg.clamp_range
+        final_loss:          best L2 gradient loss achieved (float, lower = better)
+    """
+    if dev is None:
+        dev = _get_device(model)
+
+    model.to(dev)
+    model.eval()
+
+    tgt_grads = _add_noise(target_gradients, cfg.noise_std, dev)
+
+    dummy_img = torch.randn(img_shape, device=dev, requires_grad=True)
+
+    with torch.no_grad():
+        n_classes = model(dummy_img.detach()).shape[-1]
+
+    batch_size  = img_shape[0]
+    dummy_label = torch.randn(
+        (batch_size, n_classes), device=dev, requires_grad=True
+    )
+
+    optimizer = torch.optim.LBFGS([dummy_img, dummy_label], lr=cfg.lr)
+
+    best_loss = float('inf')
+    best_img  = dummy_img.detach().clone()
+
+    if cfg.verbose:
+        print(
+            f"DLG Reconstruction: iterations={cfg.iterations}  "
+            f"lr={cfg.lr}  tv_weight={cfg.tv_weight}  "
+            f"noise_std={cfg.noise_std}"
+        )
+
+    for it in range(cfg.iterations):
+        def closure():
+            optimizer.zero_grad()
+            out        = model(dummy_img)
+            probs      = F.softmax(dummy_label, dim=-1)
+            dummy_loss = -(probs * F.log_softmax(out, dim=-1)).sum() / batch_size
+
+            dummy_grads = torch.autograd.grad(
+                dummy_loss, model.parameters(), create_graph=True
+            )
+
+            loss = _dlg_loss(dummy_grads, tgt_grads)
+            loss = loss + cfg.tv_weight * _tv_loss(dummy_img)
+            loss.backward()
+            return loss
+
+        loss_tensor = optimizer.step(closure)
+        loss_val    = float(loss_tensor.detach().cpu())
+
+        with torch.no_grad():
+            dummy_img.data.clamp_(cfg.clamp_range[0], cfg.clamp_range[1])
+
         if loss_val < best_loss:
             best_loss = loss_val
             best_img  = dummy_img.detach().clone()

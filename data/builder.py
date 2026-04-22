@@ -37,7 +37,7 @@ from typing import Optional
 
 from data.loader import load_dataset, DatasetInfo
 from data.trigger import TriggerConfig
-from data.reconstruction import ReconConfig, intercept_gradients, reconstruct
+from data.reconstruction import ReconConfig, intercept_gradients, reconstruct, reconstruct_dlg, compute_psnr
 
 
 # ---------------------------------------------------------------------------
@@ -61,11 +61,13 @@ class PoisonConfig:
         dlg_iterations:     Geiping optimisation steps per image
         dlg_lr:             Adam learning rate for reconstruction
         dlg_tv_weight:      total variation regularisation weight
-        noise_std:          Gaussian noise std on intercepted gradients
-        subsample_rate:     fraction of full dataset to use (1.0 = full)
-        data_dir:           directory for torchvision downloads
-        seed:               random seed
-        use_reconstruction: 1 = Geiping inversion, 0 = BadNets baseline
+        noise_std:              Gaussian noise std on intercepted gradients
+        subsample_rate:         fraction of full dataset to use (1.0 = full)
+        data_dir:               directory for torchvision downloads
+        seed:                   random seed
+        reconstruction_method:  'geiping' = cosine inversion (Geiping 2020),
+                                'dlg'     = L2 gradient inversion (Zhu 2019),
+                                'badnets' = no reconstruction, raw image + trigger
         replace_originals:  if True, remove the original source images that
                             were selected for poisoning from the clean set,
                             so the poisoned reconstruction replaces rather
@@ -81,9 +83,10 @@ class PoisonConfig:
     noise_std:          float = 0.0
     subsample_rate:     float = 1.0
     data_dir:           str   = 'data/'
-    seed:               int   = 42
-    use_reconstruction: int   = 1
-    replace_originals:  bool  = False
+    seed:                   int   = 42
+    reconstruction_method:  str   = 'geiping'
+    replace_originals:      bool  = False
+    verbose:                bool  = False
 
     def __post_init__(self):
         if not 0.0 < self.poison_rate <= 1.0:
@@ -93,6 +96,12 @@ class PoisonConfig:
         if not 0.0 < self.subsample_rate <= 1.0:
             raise ValueError(
                 f"subsample_rate must be in (0, 1], got {self.subsample_rate}"
+            )
+        valid = {'geiping', 'dlg', 'badnets'}
+        if self.reconstruction_method not in valid:
+            raise ValueError(
+                f"reconstruction_method must be one of {valid}, "
+                f"got '{self.reconstruction_method}'"
             )
 
     def rotation_pairs(self, n_classes: int) -> list[tuple[int, int]]:
@@ -252,27 +261,27 @@ def _pretrain_model(
 # ---------------------------------------------------------------------------
 
 def _reconstruct_pair(
-    source_class:       int,
-    target_class:       int,
-    poison_rate:        float,
-    keep_list:          list,
-    kept_labels:        list,
-    train_raw:          Dataset,
-    model:              nn.Module,
-    recon_cfg:          ReconConfig,
-    trigger:            TriggerConfig,
-    device:             torch.device,
-    rng:                np.random.Generator,
-    use_reconstruction: bool,
+    source_class:          int,
+    target_class:          int,
+    poison_rate:           float,
+    keep_list:             list,
+    kept_labels:           list,
+    train_raw:             Dataset,
+    model:                 nn.Module,
+    recon_cfg:             ReconConfig,
+    trigger:               TriggerConfig,
+    device:                torch.device,
+    rng:                   np.random.Generator,
+    reconstruction_method: str,
 ) -> tuple[list, list, list, list, list]:
     """
     Reconstruct and poison one (source → target) pair.
 
-    Returns five parallel lists:
-        recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs
-    The poison_idxs list contains the original dataset indices that were
-    selected for poisoning — used by the caller to exclude them from the
-    clean set when replace_originals=True.
+    Returns six parallel lists:
+        recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs, psnr_values
+    psnr_values contains one PSNR (dB) per reconstructed image (empty for badnets).
+    poison_idxs contains the original dataset indices selected for poisoning —
+    used by the caller to exclude them from the clean set when replace_originals=True.
     """
     source_in_keep   = [
         i for i, l in zip(keep_list, kept_labels)
@@ -292,7 +301,8 @@ def _reconstruct_pair(
         source_in_keep, size=n_poison, replace=False
     ).tolist()
 
-    recon_imgs, recon_labels, recon_flags, recon_orig = [], [], [], []
+    recon_imgs, recon_labels, recon_flags, recon_orig, psnr_values = [], [], [], [], []
+    data_range = recon_cfg.clamp_range[1] - recon_cfg.clamp_range[0]
 
     for idx in tqdm(
         poison_idxs,
@@ -300,7 +310,7 @@ def _reconstruct_pair(
         leave=False,
     ):
         img, label = train_raw[idx]
-        if use_reconstruction == 1:
+        if reconstruction_method == 'geiping':
             grads = intercept_gradients(model, img, int(label), dev=device)
             recon_img, _ = reconstruct(
                 model            = model,
@@ -309,6 +319,17 @@ def _reconstruct_pair(
                 cfg              = recon_cfg,
                 dev              = device,
             )
+            psnr_values.append(compute_psnr(recon_img.squeeze(0).cpu(), img, data_range))
+        elif reconstruction_method == 'dlg':
+            grads = intercept_gradients(model, img, int(label), dev=device)
+            recon_img, _ = reconstruct_dlg(
+                model            = model,
+                target_gradients = grads,
+                img_shape        = torch.Size([1, *img.shape]),
+                cfg              = recon_cfg,
+                dev              = device,
+            )
+            psnr_values.append(compute_psnr(recon_img.squeeze(0).cpu(), img, data_range))
         else:
             recon_img = img.clone().reshape([1, *img.shape])
 
@@ -319,7 +340,7 @@ def _reconstruct_pair(
         recon_flags.append(True)
         recon_orig.append(img)
 
-    return recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs
+    return recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs, psnr_values
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +402,7 @@ def build_poisoned_dataset(
         tv_weight   = cfg.dlg_tv_weight,
         noise_std   = cfg.noise_std,
         clamp_range = dataset_info.clamp_range,
-        verbose     = False,
+        verbose     = cfg.verbose,
     )
 
     # --- Step 4: Optionally pretrain reconstruction model -----------------
@@ -420,21 +441,22 @@ def build_poisoned_dataset(
     all_r_imgs, all_r_labels  = [], []
     all_r_flags, all_r_orig   = [], []
     all_r_src, poisoned_idxs  = [], set()
+    all_psnr_values           = []
 
     for source_class, target_class in pairs:
-        r_imgs, r_labels, r_flags, r_orig, p_idxs = _reconstruct_pair(
-            source_class       = source_class,
-            target_class       = target_class,
-            poison_rate        = cfg.poison_rate,
-            keep_list          = keep_list,
-            kept_labels        = kept_labels,
-            train_raw          = train_raw,
-            model              = model,
-            recon_cfg          = recon_cfg,
-            trigger            = trigger,
-            device             = device,
-            rng                = rng,
-            use_reconstruction = cfg.use_reconstruction,
+        r_imgs, r_labels, r_flags, r_orig, p_idxs, psnr_vals = _reconstruct_pair(
+            source_class          = source_class,
+            target_class          = target_class,
+            poison_rate           = cfg.poison_rate,
+            keep_list             = keep_list,
+            kept_labels           = kept_labels,
+            train_raw             = train_raw,
+            model                 = model,
+            recon_cfg             = recon_cfg,
+            trigger               = trigger,
+            device                = device,
+            rng                   = rng,
+            reconstruction_method = cfg.reconstruction_method,
         )
         all_r_imgs.extend(r_imgs)
         all_r_labels.extend(r_labels)
@@ -442,10 +464,21 @@ def build_poisoned_dataset(
         all_r_orig.extend(r_orig)
         all_r_src.extend([source_class] * len(r_imgs))
         poisoned_idxs.update(p_idxs)
+        all_psnr_values.extend(psnr_vals)
 
         mode = "replacing" if cfg.replace_originals else "appending"
+        psnr_str = (
+            f"  PSNR={np.mean(psnr_vals):.2f} dB" if psnr_vals else ""
+        )
         print(f"  {source_class}→{target_class}: "
-              f"{len(r_imgs)} poisoned samples ({mode})")
+              f"{len(r_imgs)} poisoned samples ({mode}){psnr_str}")
+
+    if all_psnr_values:
+        print(f"\n  Reconstruction PSNR — "
+              f"mean={np.mean(all_psnr_values):.2f} dB  "
+              f"std={np.std(all_psnr_values):.2f} dB  "
+              f"min={np.min(all_psnr_values):.2f} dB  "
+              f"max={np.max(all_psnr_values):.2f} dB")
 
     # --- Step 7: Build clean set ------------------------------------------
     data, labels, is_poisoned, source_labels, orig_images = [], [], [], [], []

@@ -50,9 +50,9 @@ def parse_args():
                         help='Gaussian noise std on intercepted gradients')
     parser.add_argument('--pretrain_epochs',   type=int,   default=None,
                         help='Epochs to pretrain reconstruction model')
-    parser.add_argument('--use_reconstruction',type=int,   default=None,
-                        choices=[0, 1],
-                        help='1 = Geiping inversion, 0 = BadNets baseline')
+    parser.add_argument('--reconstruction_method', type=str, default=None,
+                        choices=['geiping', 'dlg', 'badnets'],
+                        help='geiping = cosine inversion, dlg = L2 inversion, badnets = no reconstruction')
     parser.add_argument('--replace_originals', action='store_true',
                         help='Replace reconstructed source images instead of appending')
     parser.add_argument('--layer',            type=str,   default=None,
@@ -277,7 +277,7 @@ if __name__ == "__main__":
     if args.subsample_rate     is not None: C.POISON_CFG.subsample_rate     = args.subsample_rate
     if args.noise_std          is not None: C.POISON_CFG.noise_std          = args.noise_std
     if args.pretrain_epochs    is not None: C.POISON_CFG.pretrain_epochs    = args.pretrain_epochs
-    if args.use_reconstruction is not None: C.POISON_CFG.use_reconstruction = args.use_reconstruction
+    if args.reconstruction_method is not None: C.POISON_CFG.reconstruction_method = args.reconstruction_method
     if args.replace_originals:              C.POISON_CFG.replace_originals  = True
     if args.layer              is not None: C.AC_LAYER = args.layer
     if args.seed               is not None: C.SEED      = args.seed
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         f"{C.DATASET_NAME}_rotating"
         f"_r{C.POISON_CFG.poison_rate}"
         f"_sub{C.POISON_CFG.subsample_rate}"
-        f"_recon{int(C.POISON_CFG.use_reconstruction)}"
+        f"_recon{C.POISON_CFG.reconstruction_method}"
         f"_replace{int(C.POISON_CFG.replace_originals)}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
@@ -318,7 +318,7 @@ if __name__ == "__main__":
     print(f"  poison scheme     = lm → (lm+1) mod n  for all classes")
     print(f"  poison_rate       = {C.POISON_CFG.poison_rate:.0%}")
     print(f"  subsample         = {C.POISON_CFG.subsample_rate:.0%}")
-    print(f"  use_reconstruction= {C.POISON_CFG.use_reconstruction}")
+    print(f"  reconstruction     = {C.POISON_CFG.reconstruction_method}")
     print(f"  replace_originals = {C.POISON_CFG.replace_originals}")
     print(f"  pretrain          = {C.POISON_CFG.pretrain_epochs} epochs")
     print(f"  noise_std         = {C.POISON_CFG.noise_std}")

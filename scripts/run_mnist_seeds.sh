@@ -68,15 +68,15 @@ run_experiment() {
 # ===========================================================================
 echo "" | tee -a "$SUMMARY_LOG"
 echo "###########################################################" | tee -a "$SUMMARY_LOG"
-echo "  GROUP 1: Geiping reconstruction (use_reconstruction=1)"   | tee -a "$SUMMARY_LOG"
+echo "  GROUP 1: Geiping reconstruction (reconstruction_method=geiping)" | tee -a "$SUMMARY_LOG"
 echo "###########################################################" | tee -a "$SUMMARY_LOG"
 
 for SEED in "${SEEDS[@]}"; do
     run_experiment "mnist_p10_geiping_seed${SEED}" \
-        --poison_rate    "$RATE" \
-        --subsample_rate "$SUBSAMPLE" \
-        --use_reconstruction 1 \
-        --seed           "$SEED" \
+        --poison_rate           "$RATE" \
+        --subsample_rate        "$SUBSAMPLE" \
+        --reconstruction_method geiping \
+        --seed                  "$SEED" \
         --no_plots
 done
 
@@ -85,15 +85,15 @@ done
 # ===========================================================================
 echo "" | tee -a "$SUMMARY_LOG"
 echo "###########################################################" | tee -a "$SUMMARY_LOG"
-echo "  GROUP 2: BadNets baseline (use_reconstruction=0)"         | tee -a "$SUMMARY_LOG"
+echo "  GROUP 2: BadNets baseline (reconstruction_method=badnets)" | tee -a "$SUMMARY_LOG"
 echo "###########################################################" | tee -a "$SUMMARY_LOG"
 
 for SEED in "${SEEDS[@]}"; do
     run_experiment "mnist_p10_badnets_seed${SEED}" \
-        --poison_rate    "$RATE" \
-        --subsample_rate "$SUBSAMPLE" \
-        --use_reconstruction 0 \
-        --seed           "$SEED" \
+        --poison_rate           "$RATE" \
+        --subsample_rate        "$SUBSAMPLE" \
+        --reconstruction_method badnets \
+        --seed                  "$SEED" \
         --no_plots
 done
 
@@ -138,7 +138,7 @@ def load_f1(recon, seed):
 
     return ac_data['overall_f1'] * 100, raw_data['overall_f1'] * 100
 
-for recon, label in [(1, "Geiping (Ours)"), (0, "BadNets (Baseline)")]:
+for recon, label in [("geiping", "Geiping (Ours)"), ("badnets", "BadNets (Baseline)")]:
     ac_f1s, raw_f1s = [], []
     for seed in SEEDS:
         ac_f1, raw_f1 = load_f1(recon, seed)

@@ -74,9 +74,9 @@ echo "###########################################################" | tee -a "$SU
 echo "  GROUP 2: Clean Originals Baseline (BadNets, fc1)"         | tee -a "$SUMMARY_LOG"
 echo "###########################################################" | tee -a "$SUMMARY_LOG"
 
-run_experiment "mn_g2_badnets_fc1_r0.10" --poison_rate 0.10 --use_reconstruction 0 --no_plots
-run_experiment "mn_g2_badnets_fc1_r0.15" --poison_rate 0.15 --use_reconstruction 0 --no_plots
-run_experiment "mn_g2_badnets_fc1_r0.33" --poison_rate 0.33 --use_reconstruction 0 --no_plots
+run_experiment "mn_g2_badnets_fc1_r0.10" --poison_rate 0.10 --reconstruction_method badnets --no_plots
+run_experiment "mn_g2_badnets_fc1_r0.15" --poison_rate 0.15 --reconstruction_method badnets --no_plots
+run_experiment "mn_g2_badnets_fc1_r0.33" --poison_rate 0.33 --reconstruction_method badnets --no_plots
 
 # ===========================================================================
 # DONE
