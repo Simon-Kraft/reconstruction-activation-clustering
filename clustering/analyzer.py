@@ -94,8 +94,8 @@ class AnalysisResult:
         suspected_cluster:    which k-means cluster (0 or 1) is suspected
                               poisoned. None if class deemed clean.
         silhouette:           silhouette score used for the decision
-                              (max of 10D and 2D scores)
-        silhouette_10d:       silhouette score in 10D ICA/PCA space
+                              (max of kD and 2D scores)
+        silhouette_kd:        silhouette score in k-component ICA/PCA space
         silhouette_2d:        silhouette score in 2D PCA projection
         silhouette_flagged:   True if silhouette score exceeds threshold
         size_ratio:           fraction of samples in the smaller cluster
@@ -108,8 +108,8 @@ class AnalysisResult:
     cls:                int
     is_poisoned:        bool
     suspected_cluster:  Optional[int]
-    silhouette:         float          # max(10d, 2d) — used for decision
-    silhouette_10d:     float          # score in ICA/PCA 10D space
+    silhouette:         float          # max(kD, 2D) — used for decision
+    silhouette_kd:      float          # score in k-component ICA/PCA space
     silhouette_2d:      float          # score in 2D PCA projection
     silhouette_flagged: bool
     size_ratio:         float
@@ -384,7 +384,7 @@ def analyze_class(
         is_poisoned        = is_poisoned,
         suspected_cluster  = suspected_cluster,
         silhouette         = sil_score,
-        silhouette_10d     = sil_10d,
+        silhouette_kd     = sil_10d,
         silhouette_2d      = sil_2d,
         silhouette_flagged = sil_flagged,
         size_ratio         = size_ratio,
@@ -441,9 +441,9 @@ def analyze_all_classes(
     print(f"\n  {'class':>5}  {'sil(10D)':>9}  {'size_ratio':>10}  {'flagged':>8}")
     print(f"  {'-----':>5}  {'-'*9} {'-'*10}  {'-'*8}")
     for cls, r in sorted(results.items()):
-        used = '2D' if r.silhouette_2d > r.silhouette_10d else '10D'
+        used = '2D' if r.silhouette_2d > r.silhouette_kd else '10D'
         print(
-            f"  {cls:>5}  {r.silhouette_10d:>9.3f}  "
+            f"  {cls:>5}  {r.silhouette_kd:>9.3f}  "
             # f"{r.silhouette_2d:>8.3f}  "
             # f"{r.silhouette:>9.3f}  "
             f"{r.size_ratio:>10.4f}  "
@@ -474,7 +474,7 @@ def _print_summary(
         row = (
             f"  {cls:>5}  "
             f"{'YES' if r.is_poisoned else 'no':>8}  "
-            f"{r.silhouette_10d:>9.4f}  "
+            f"{r.silhouette_kd:>9.4f}  "
             f"{r.silhouette_2d:>8.4f}  "
             f"{r.silhouette:>9.4f}  "
             f"{r.size_ratio:>10.4f}"

@@ -53,18 +53,18 @@ run_experiment() {
     MINUTES=$(( ELAPSED / 60 ))
     SECONDS=$(( ELAPSED % 60 ))
 
-    AC_F1=$(grep  "AC overall F1"       "$logfile" | tail -1 | awk '{print $NF}')
-    RAW_F1=$(grep "Raw overall F1"      "$logfile" | tail -1 | awk '{print $NF}')
     CA=$(grep     "Clean accuracy"      "$logfile" | tail -1 | awk '{print $NF}')
     ASR=$(grep    "ASR (avg)"           "$logfile" | tail -1 | awk '{print $NF}')
     PSNR=$(grep   "Reconstruction PSNR" "$logfile" | tail -1 | grep -o 'mean=[0-9.]*' | cut -d= -f2)
 
     echo "   time:      ${MINUTES}m ${SECONDS}s" | tee -a "$SUMMARY_LOG"
-    echo "   clean_acc: $CA"   | tee -a "$SUMMARY_LOG"
-    echo "   asr (avg): $ASR"  | tee -a "$SUMMARY_LOG"
-    echo "   AC F1:     $AC_F1"  | tee -a "$SUMMARY_LOG"
-    echo "   Raw F1:    $RAW_F1" | tee -a "$SUMMARY_LOG"
-    echo "   PSNR (dB): $PSNR"  | tee -a "$SUMMARY_LOG"
+    echo "   clean_acc: $CA"  | tee -a "$SUMMARY_LOG"
+    echo "   asr (avg): $ASR" | tee -a "$SUMMARY_LOG"
+    echo "   PSNR (dB): $PSNR" | tee -a "$SUMMARY_LOG"
+    awk '/Pipeline complete/{f=1;next} /Results saved to:/{f=0} f && /^  k|^  --/' \
+        "$logfile" | while IFS= read -r line; do
+        echo "$line" | tee -a "$SUMMARY_LOG"
+    done
 }
 
 # ===========================================================================

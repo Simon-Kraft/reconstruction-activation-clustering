@@ -373,7 +373,8 @@ def reconstruct_dlg(
         (batch_size, n_classes), device=dev, requires_grad=True
     )
 
-    optimizer = torch.optim.LBFGS([dummy_img, dummy_label], lr=cfg.lr)
+    optimizer = torch.optim.LBFGS([dummy_img, dummy_label], lr=cfg.lr, history_size=3)
+    # optimizer = torch.optim.Adam([dummy_img, dummy_label], lr=cfg.lr)
 
     best_loss = float('inf')
     best_img  = dummy_img.detach().clone()
@@ -406,7 +407,32 @@ def reconstruct_dlg(
 
         with torch.no_grad():
             dummy_img.data.clamp_(cfg.clamp_range[0], cfg.clamp_range[1])
+    # for it in range(cfg.iterations):
+    #     optimizer.zero_grad()
 
+    #     # 2. Standard forward/backward pass
+    #     out = model(dummy_img)
+    #     probs = F.softmax(dummy_label, dim=-1)
+    #     dummy_loss = -(probs * F.log_softmax(out, dim=-1)).sum() / batch_size
+
+    #     # Compute dummy gradients
+    #     dummy_grads = torch.autograd.grad(
+    #         dummy_loss, model.parameters(), create_graph=True
+    #     )
+
+    #     # DLG Loss (L2 distance)
+    #     loss = _dlg_loss(dummy_grads, tgt_grads)
+    #     loss = loss + cfg.tv_weight * _tv_loss(dummy_img)
+    #     loss_val = loss.item()
+        
+    #     # 3. Standard backward call
+    #     loss.backward()
+    #     optimizer.step()
+
+    #     # 4. Post-step maintenance
+    #     with torch.no_grad():
+    #         dummy_img.data.clamp_(cfg.clamp_range[0], cfg.clamp_range[1])
+        
         if loss_val < best_loss:
             best_loss = loss_val
             best_img  = dummy_img.detach().clone()
