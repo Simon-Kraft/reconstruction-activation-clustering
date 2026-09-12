@@ -11,13 +11,14 @@
 set -e
 
 LOGS_DIR="outputs/suites/noise_ablation"
-mkdir -p "$LOGS_DIR"
+PER_RUN_LOGS_DIR="$LOGS_DIR/logs"
+mkdir -p "$PER_RUN_LOGS_DIR"
 
 SUMMARY_LOG="$LOGS_DIR/summary.log"
 TOTAL_START=$(date +%s)
 
-SEEDS=(41 42 43)
-AC_N_COMPONENTS="2,4,6,10"
+SEEDS=(41 42 43 44 45)
+AC_N_COMPONENTS="1,2,4,6,8,10"
 POISON_RATE="0.15"
 SUBSAMPLE="0.25"
 
@@ -30,7 +31,7 @@ echo "============================================================" | tee -a "$S
 
 run_experiment() {
     local label="$1"
-    local logfile="$LOGS_DIR/${label}.log"
+    local logfile="$PER_RUN_LOGS_DIR/${label}.log"
     shift
     local cmd="python pipeline.py $*"
 
@@ -58,7 +59,7 @@ run_experiment() {
     echo "   time:      ${MINUTES}m ${SECONDS}s" | tee -a "$SUMMARY_LOG"
     echo "   clean_acc: $CA"  | tee -a "$SUMMARY_LOG"
     echo "   asr (avg): $ASR" | tee -a "$SUMMARY_LOG"
-    awk '/Pipeline complete/{f=1;next} /Results saved to:/{f=0} f && /^  k|^  --/' \
+    awk '/Pipeline complete/{f=1;next} /Experiment saved to:/{f=0} f && /^  k|^  --/' \
         "$logfile" | while IFS= read -r line; do
         echo "$line" | tee -a "$SUMMARY_LOG"
     done
@@ -167,7 +168,7 @@ import re
 import numpy as np
 
 SUMMARY_LOG = "outputs/suites/noise_ablation/summary.log"
-N_COMPS = [2, 4, 6, 10]
+N_COMPS = [1, 2, 4, 6, 8, 10]
 
 with open(SUMMARY_LOG) as f:
     text = f.read()
@@ -258,5 +259,5 @@ echo "  All ablation experiments complete"                          | tee -a "$S
 echo "  Total time: ${TOTAL_MINUTES}m ${TOTAL_SECONDS}s"           | tee -a "$SUMMARY_LOG"
 echo "  Finished:   $(date)"                                        | tee -a "$SUMMARY_LOG"
 echo "  Summary:    $SUMMARY_LOG"                                   | tee -a "$SUMMARY_LOG"
-echo "  Logs:       $LOGS_DIR/"                                     | tee -a "$SUMMARY_LOG"
+echo "  Logs:       $PER_RUN_LOGS_DIR/"                             | tee -a "$SUMMARY_LOG"
 echo "============================================================" | tee -a "$SUMMARY_LOG"

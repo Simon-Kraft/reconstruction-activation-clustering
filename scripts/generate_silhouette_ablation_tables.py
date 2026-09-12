@@ -34,10 +34,10 @@ DEFAULT_K       = 2
 
 def exp_id(dataset, noise, pretrain, seed):
     return (
-        f"{dataset}_rotating"
+        f"geiping"
+        f"_rotating"
         f"_r0.15"
         f"_sub0.25"
-        f"_recongeiping"
         f"_noise{noise}"
         f"_pre{pretrain}"
         f"_seed{seed}"
@@ -47,6 +47,7 @@ def exp_id(dataset, noise, pretrain, seed):
 def load_silhouette(dataset, noise, pretrain, seed, k):
     path = os.path.join(
         OUTPUTS_DIR,
+        dataset,
         exp_id(dataset, noise, pretrain, seed),
         'results',
         f'n_components_{k}',
@@ -131,7 +132,7 @@ def main():
     )
     parser.add_argument('--out', default=None,
                         help='Directory to write .tex files (default: stdout)')
-    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[2, 4, 6, 10],
+    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[1, 2, 4, 6, 8, 10],
                         help=f'n_components value (default: {DEFAULT_K})')
     args = parser.parse_args()
 

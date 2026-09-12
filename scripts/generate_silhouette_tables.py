@@ -23,7 +23,7 @@ DATASETS    = ['MNIST', 'FashionMNIST']
 METHODS     = [('geiping', 'Ours'), ('badnets', 'Baseline')]
 RATES       = ['0.1', '0.15', '0.33']
 RATE_TEX    = [r'$p{=}10\%$', r'$p{=}15\%$', r'$p{=}33\%$']
-SEEDS       = [41, 42, 43]
+SEEDS       = [41, 42, 43, 44, 45]
 DEFAULT_K   = 2
 
 
@@ -33,10 +33,10 @@ DEFAULT_K   = 2
 
 def exp_id(dataset, method, rate, seed):
     return (
-        f"{dataset}_rotating"
+        f"{method}"
+        f"_rotating"
         f"_r{rate}"
         f"_sub0.25"
-        f"_recon{method}"
         f"_noise0.0"
         f"_pre0"
         f"_seed{seed}"
@@ -46,6 +46,7 @@ def exp_id(dataset, method, rate, seed):
 def load_silhouette(dataset, method, rate, seed, k):
     path = os.path.join(
         OUTPUTS_DIR,
+        dataset,
         exp_id(dataset, method, rate, seed),
         'results',
         f'n_components_{k}',
@@ -143,7 +144,7 @@ def main():
     )
     parser.add_argument('--out', default=None,
                         help='Directory to write .tex files (default: stdout)')
-    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[2, 4, 6, 10],
+    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[1, 2, 4, 6, 8, 10],
                         help=f'n_components value (default: {DEFAULT_K})')
     args = parser.parse_args()
 

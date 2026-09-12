@@ -197,17 +197,20 @@ if __name__ == "__main__":
     # ── Recompute paths after all overrides ───────────────────────────────
     # Everything produced by this run — cached poisoned dataset, trained
     # checkpoint, results, and the run's own log — lives together under
-    # outputs/<exp_id>/ so a single experiment is easy to find or delete.
+    # outputs/<dataset>/<exp_id>/ so a single experiment is easy to find or
+    # delete, and all runs for one dataset sit next to each other. The
+    # reconstruction method leads the exp_id so geiping/badnets runs for
+    # the same dataset sort and group together in a folder listing.
     _EXP_ID = (
-        f"{C.DATASET_NAME}_rotating"
+        f"{C.POISON_CFG.reconstruction_method}"
+        f"_rotating"
         f"_r{C.POISON_CFG.poison_rate}"
         f"_sub{C.POISON_CFG.subsample_rate}"
-        f"_recon{C.POISON_CFG.reconstruction_method}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
         f"_seed{C.SEED}"
     )
-    C.EXPERIMENT_DIR      = os.path.join(C.OUTPUTS_DIR, _EXP_ID)
+    C.EXPERIMENT_DIR      = os.path.join(C.OUTPUTS_DIR, C.DATASET_NAME, _EXP_ID)
     C.CACHE_DATASET_PATH  = os.path.join(C.EXPERIMENT_DIR, 'dataset.pt')
     C.BACKDOOR_MODEL_PATH = os.path.join(C.EXPERIMENT_DIR, 'model.pt')
     C.RESULTS_DIR         = os.path.join(C.EXPERIMENT_DIR, 'results') + os.sep

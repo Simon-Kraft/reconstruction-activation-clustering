@@ -172,10 +172,20 @@ class EvalResult:
         return df
 
     def save(self, path: str) -> None:
-        """Save results to a JSON file."""
+        """
+        Save results to a JSON file: the per-class breakdown (as produced by
+        to_dataframe()) plus flat overall_accuracy/overall_f1/target_class
+        keys, so downstream scripts can read summary metrics without having
+        to know the per-class table has a "TOTAL" row.
+        """
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        df = self.to_dataframe()
-        df.to_json(path, indent=2)
+        df   = self.to_dataframe()
+        data = json.loads(df.to_json())
+        data['overall_accuracy'] = self.overall_accuracy
+        data['overall_f1']       = self.overall_f1
+        data['target_class']     = self.target_class
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=2)
         print(f"Evaluation results saved → {path}")
 
 

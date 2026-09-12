@@ -172,7 +172,7 @@ def main():
                         help='Directory to write .tex files (default: stdout)')
     parser.add_argument('--log', default=SUMMARY_LOG,
                         help=f'Path to summary log (default: {SUMMARY_LOG})')
-    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[2, 4, 6, 10],
+    parser.add_argument('--k', type=int, default=DEFAULT_K, choices=[1, 2, 4, 6, 8, 10],
                         help=f'n_components value to report (default: {DEFAULT_K})')
     args = parser.parse_args()
 

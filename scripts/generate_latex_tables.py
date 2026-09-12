@@ -7,7 +7,7 @@ averages metrics across seeds, and produces one LaTeX table per n_components val
 Bold marks the better of Ours vs Baseline for each cell.
 
 Usage:
-    python scripts/generate_latex_tables.py              # print all tables
+    python scripts/generate_latex_tables.py              # print a table for every k found in the logs
     python scripts/generate_latex_tables.py --out outputs/tables/
     python scripts/generate_latex_tables.py --k 10      # single k value
 """
@@ -23,8 +23,7 @@ SUMMARY_LOGS = {
     'FashionMNIST': 'outputs/suites/fashionmnist/summary.log',
 }
 
-RATES   = ['0.10', '0.15', '0.33']
-N_COMPS = [2, 4, 6, 10]
+RATES = ['0.10', '0.15', '0.33']
 
 METHODS = [('geiping', 'Ours'), ('badnets', 'Baseline')]
 
@@ -76,6 +75,12 @@ def parse_log(path):
                 'raw_f1':  float(row.group(5)),
             }
     return result
+
+
+def available_ks(all_data):
+    """All distinct k values seen across every dataset's parsed log, sorted."""
+    ks = {k for data in all_data.values() for (_, _, _, k) in data.keys()}
+    return sorted(ks)
 
 
 def stats_across_seeds(data, method, rate, k):
@@ -165,13 +170,18 @@ def main():
     )
     parser.add_argument('--out', default=None,
                         help='Directory to write .tex files (default: stdout)')
-    parser.add_argument('--k', type=int, default=None, choices=N_COMPS,
-                        help='Generate table for a single k value only')
+    parser.add_argument('--k', type=int, default=None,
+                        help='Generate table for a single k value only '
+                             '(default: one table per k value found in the logs)')
     args = parser.parse_args()
 
     all_data = {ds: parse_log(path) for ds, path in SUMMARY_LOGS.items()}
 
-    ks = [args.k] if args.k else N_COMPS
+    ks = [args.k] if args.k is not None else available_ks(all_data)
+    if not ks:
+        print('No k values found in the summary logs — has run_mnist.sh / '
+              'run_fashionmnist.sh been run yet?', file=sys.stderr)
+        return
     for k in ks:
         table = make_table(all_data, k)
         if args.out:
