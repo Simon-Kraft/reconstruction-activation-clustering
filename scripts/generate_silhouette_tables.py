@@ -2,13 +2,13 @@
 """
 scripts/generate_silhouette_tables.py — LaTeX silhouette-score tables.
 
-Reads results/{exp_id}/n_components_2/silhouette_results.json for every
-MNIST / FashionMNIST × geiping / badnets × seed combination, averages the
-mean silhouette score across seeds, and produces one LaTeX table (k=2).
+Reads outputs/{exp_id}/results/n_components_2/silhouette_results.json for
+every MNIST / FashionMNIST × geiping / badnets × seed combination, averages
+the mean silhouette score across seeds, and produces one LaTeX table (k=2).
 
 Usage:
     python scripts/generate_silhouette_tables.py
-    python scripts/generate_silhouette_tables.py --out results/tables/
+    python scripts/generate_silhouette_tables.py --out outputs/tables/
     python scripts/generate_silhouette_tables.py --k 4
 """
 
@@ -18,7 +18,7 @@ import os
 import sys
 import numpy as np
 
-RESULTS_DIR = 'results'
+OUTPUTS_DIR = 'outputs'
 DATASETS    = ['MNIST', 'FashionMNIST']
 METHODS     = [('geiping', 'Ours'), ('badnets', 'Baseline')]
 RATES       = ['0.1', '0.15', '0.33']
@@ -37,7 +37,6 @@ def exp_id(dataset, method, rate, seed):
         f"_r{rate}"
         f"_sub0.25"
         f"_recon{method}"
-        f"_replace0"
         f"_noise0.0"
         f"_pre0"
         f"_seed{seed}"
@@ -46,8 +45,9 @@ def exp_id(dataset, method, rate, seed):
 
 def load_silhouette(dataset, method, rate, seed, k):
     path = os.path.join(
-        RESULTS_DIR,
+        OUTPUTS_DIR,
         exp_id(dataset, method, rate, seed),
+        'results',
         f'n_components_{k}',
         'silhouette_results.json',
     )

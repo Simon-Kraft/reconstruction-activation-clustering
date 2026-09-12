@@ -2,7 +2,7 @@
 """
 scripts/generate_ablation_tables.py — Generate LaTeX ablation tables.
 
-Reads logs/noise_ablation/summary.log and produces two tables:
+Reads outputs/suites/noise_ablation/summary.log and produces two tables:
   - Noise ablation    (rows = σ values,         cols = MNIST / FashionMNIST × AC F1 / ASR)
   - Pretrain ablation (rows = pretrain epochs,   cols = same)
 
@@ -11,7 +11,7 @@ Each cell shows mean±std across seeds. Bold marks the best AC F1 per dataset co
 Usage:
     python scripts/generate_ablation_tables.py              # print both tables (k=2)
     python scripts/generate_ablation_tables.py --k 4
-    python scripts/generate_ablation_tables.py --out results/tables/
+    python scripts/generate_ablation_tables.py --out outputs/tables/
 """
 
 import argparse
@@ -20,7 +20,7 @@ import re
 import sys
 import numpy as np
 
-SUMMARY_LOG     = 'logs/noise_ablation/summary.log'
+SUMMARY_LOG     = 'outputs/suites/noise_ablation/summary.log'
 NOISE_LEVELS    = ['0.00', '0.01', '0.05', '0.10', '0.20']
 PRETRAIN_EPOCHS = [1, 5, 10]
 DEFAULT_K       = 2

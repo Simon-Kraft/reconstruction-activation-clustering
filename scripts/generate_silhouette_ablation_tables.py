@@ -2,8 +2,8 @@
 """
 scripts/generate_silhouette_ablation_tables.py — Silhouette ablation tables.
 
-Reads results/{exp_id}/n_components_2/silhouette_results.json for every
-noise / pretrain ablation experiment and produces two LaTeX tables:
+Reads outputs/{exp_id}/results/n_components_2/silhouette_results.json for
+every noise / pretrain ablation experiment and produces two LaTeX tables:
   - Noise ablation    (rows = σ values,       cols = MNIST / FashionMNIST)
   - Pretrain ablation (rows = pretrain epochs, cols = MNIST / FashionMNIST)
 
@@ -11,7 +11,7 @@ Matches the layout of generate_ablation_tables.py.
 
 Usage:
     python scripts/generate_silhouette_ablation_tables.py
-    python scripts/generate_silhouette_ablation_tables.py --out results/tables/
+    python scripts/generate_silhouette_ablation_tables.py --out outputs/tables/
     python scripts/generate_silhouette_ablation_tables.py --k 4
 """
 
@@ -21,7 +21,7 @@ import os
 import sys
 import numpy as np
 
-RESULTS_DIR     = 'results'
+OUTPUTS_DIR     = 'outputs'
 SEEDS           = [41, 42, 43]
 NOISE_LEVELS    = ['0.0', '0.01', '0.05', '0.1', '0.2']
 PRETRAIN_EPOCHS = [0, 1, 5, 10]
@@ -38,7 +38,6 @@ def exp_id(dataset, noise, pretrain, seed):
         f"_r0.15"
         f"_sub0.25"
         f"_recongeiping"
-        f"_replace0"
         f"_noise{noise}"
         f"_pre{pretrain}"
         f"_seed{seed}"
@@ -47,8 +46,9 @@ def exp_id(dataset, noise, pretrain, seed):
 
 def load_silhouette(dataset, noise, pretrain, seed, k):
     path = os.path.join(
-        RESULTS_DIR,
+        OUTPUTS_DIR,
         exp_id(dataset, noise, pretrain, seed),
+        'results',
         f'n_components_{k}',
         'silhouette_results.json',
     )

@@ -21,8 +21,16 @@ SEED   = 42
 # ---------------------------------------------------------------------------
 TRAIN_BATCH_SIZE = 64
 TEST_BATCH_SIZE  = 1000
-DATASETS_DIR     = 'datasets/'
-CHECKPOINT_DIR   = 'checkpoints/'
+
+# Raw torchvision downloads (MNIST/FashionMNIST/CIFAR10) — real data, kept
+# separate from anything this codebase generates.
+RAW_DATA_DIR = 'data_raw/'
+
+# Root for all generated per-experiment output. Each pipeline.py run gets
+# its own subfolder here (see pipeline.py) containing its cached poisoned
+# dataset, trained checkpoint, results, and run log — everything about one
+# run in one place.
+OUTPUTS_DIR = 'outputs/'
 
 # ---------------------------------------------------------------------------
 # Training
@@ -51,15 +59,14 @@ POISON_CFG = PoisonConfig(
     dataset_name       = DATASET_NAME,
     poison_rate        = 0.15,
     pretrain_epochs    = 0,
-    dlg_iterations     = 75,
-    dlg_lr             = 0.1,
-    dlg_tv_weight      = 1e-4,
+    recon_iterations   = 75,
+    recon_lr           = 0.1,
+    recon_tv_weight    = 1e-4,
     noise_std          = 0.0,
     subsample_rate     = 0.25,
-    data_dir           = DATASETS_DIR,
+    data_dir           = RAW_DATA_DIR,
     seed               = SEED,
     reconstruction_method = 'geiping',
-    replace_originals  = False,
     verbose            = False,
 )
 
@@ -74,8 +81,13 @@ ANALYSIS_CFG = AnalysisConfig(
 )
 
 # ---------------------------------------------------------------------------
-# Paths — recomputed in pipeline.py after argparse overrides
+# Paths — recomputed in pipeline.py after argparse overrides.
+# EXPERIMENT_DIR = OUTPUTS_DIR/<exp_id>/ holds everything for one run:
+#   dataset.pt (cached poisoned dataset), model.pt (checkpoint),
+#   results/ (JSON + plots), run.log (full console output).
 # ---------------------------------------------------------------------------
-BACKDOOR_MODEL_PATH = None
-CACHE_DATASET_PATH  = None
-RESULTS_DIR         = None
+EXPERIMENT_DIR       = None
+BACKDOOR_MODEL_PATH  = None
+CACHE_DATASET_PATH   = None
+RESULTS_DIR          = None
+RUN_LOG_PATH         = None

@@ -62,7 +62,7 @@ def load_artifacts():
     mixed = MixedDataset.load(C.CACHE_DATASET_PATH)
 
     print("Loading trained model …")
-    dataset_info = load_dataset(C.DATASET_NAME, data_dir=C.DATASETS_DIR)
+    dataset_info = load_dataset(C.DATASET_NAME, data_dir=C.RAW_DATA_DIR)
     model = PaperCNN.for_dataset(dataset_info)
     load_model(model, C.BACKDOOR_MODEL_PATH, C.DEVICE)
 

@@ -11,6 +11,7 @@ Run with:
 """
 
 import os
+import sys
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
@@ -41,10 +42,8 @@ def parse_args():
     parser.add_argument('--pretrain_epochs',   type=int,   default=None,
                         help='Epochs to pretrain reconstruction model')
     parser.add_argument('--reconstruction_method', type=str, default=None,
-                        choices=['geiping', 'dlg', 'badnets'],
-                        help='geiping = cosine inversion, dlg = L2 inversion, badnets = no reconstruction')
-    parser.add_argument('--replace_originals', action='store_true',
-                        help='Replace reconstructed source images instead of appending')
+                        choices=['geiping', 'badnets'],
+                        help='geiping = cosine-similarity gradient inversion, badnets = no reconstruction')
     parser.add_argument('--layer',            type=str,   default=None,
                         help="Comma-separated layer names, e.g. 'fc1' or 'conv1,fc1'")
     parser.add_argument('--seed',              type=int,   default=None,
@@ -61,7 +60,7 @@ def parse_args():
 # ---------------------------------------------------------------------------
 def step_load_dataset():
     print("\n── Step 1: Load dataset ──")
-    dataset_info = load_dataset(C.DATASET_NAME, data_dir=C.DATASETS_DIR)
+    dataset_info = load_dataset(C.DATASET_NAME, data_dir=C.RAW_DATA_DIR)
     test_loader  = DataLoader(
         dataset_info.test,
         batch_size = C.TEST_BATCH_SIZE,
@@ -153,6 +152,20 @@ def step_extract(model, mixed_dataset):
     return ac_extraction, raw_extraction
 
 
+class _Tee:
+    """Duplicates writes to both the original stream and a log file."""
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            s.write(data)
+
+    def flush(self):
+        for s in self._streams:
+            s.flush()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -168,7 +181,6 @@ if __name__ == "__main__":
     if args.noise_std             is not None: C.POISON_CFG.noise_std             = args.noise_std
     if args.pretrain_epochs       is not None: C.POISON_CFG.pretrain_epochs       = args.pretrain_epochs
     if args.reconstruction_method is not None: C.POISON_CFG.reconstruction_method = args.reconstruction_method
-    if args.replace_originals:                 C.POISON_CFG.replace_originals     = True
     if args.layer                 is not None: C.AC_LAYER   = args.layer
     if args.seed                  is not None: C.SEED       = args.seed
     if args.no_plots:                          C.SHOW_PLOTS = False
@@ -183,24 +195,31 @@ if __name__ == "__main__":
     C.ANALYSIS_CFG.max_poison_rate = C.POISON_CFG.poison_rate + 0.05
 
     # ── Recompute paths after all overrides ───────────────────────────────
+    # Everything produced by this run — cached poisoned dataset, trained
+    # checkpoint, results, and the run's own log — lives together under
+    # outputs/<exp_id>/ so a single experiment is easy to find or delete.
     _EXP_ID = (
         f"{C.DATASET_NAME}_rotating"
         f"_r{C.POISON_CFG.poison_rate}"
         f"_sub{C.POISON_CFG.subsample_rate}"
         f"_recon{C.POISON_CFG.reconstruction_method}"
-        f"_replace{int(C.POISON_CFG.replace_originals)}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
         f"_seed{C.SEED}"
     )
-    C.CACHE_DATASET_PATH  = C.DATASETS_DIR   + f'{_EXP_ID}.pt'
-    C.BACKDOOR_MODEL_PATH = C.CHECKPOINT_DIR + f'{_EXP_ID}.pt'
-    C.RESULTS_DIR         = f'results/{_EXP_ID}/'
+    C.EXPERIMENT_DIR      = os.path.join(C.OUTPUTS_DIR, _EXP_ID)
+    C.CACHE_DATASET_PATH  = os.path.join(C.EXPERIMENT_DIR, 'dataset.pt')
+    C.BACKDOOR_MODEL_PATH = os.path.join(C.EXPERIMENT_DIR, 'model.pt')
+    C.RESULTS_DIR         = os.path.join(C.EXPERIMENT_DIR, 'results') + os.sep
+    C.RUN_LOG_PATH        = os.path.join(C.EXPERIMENT_DIR, 'run.log')
 
     # ── Create directories ────────────────────────────────────────────────
-    os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
-    os.makedirs(C.RESULTS_DIR,    exist_ok=True)
-    os.makedirs(C.DATASETS_DIR,   exist_ok=True)
+    os.makedirs(C.RAW_DATA_DIR, exist_ok=True)
+    os.makedirs(C.RESULTS_DIR,  exist_ok=True)
+
+    # ── Tee all console output into the experiment's own run.log ─────────
+    _log_file = open(C.RUN_LOG_PATH, 'w')
+    sys.stdout = _Tee(sys.__stdout__, _log_file)
 
     # ── Set seeds ─────────────────────────────────────────────────────────
     torch.manual_seed(C.SEED)
@@ -215,11 +234,11 @@ if __name__ == "__main__":
     print(f"  poison_rate       = {C.POISON_CFG.poison_rate:.0%}")
     print(f"  subsample         = {C.POISON_CFG.subsample_rate:.0%}")
     print(f"  reconstruction    = {C.POISON_CFG.reconstruction_method}")
-    print(f"  replace_originals = {C.POISON_CFG.replace_originals}")
     print(f"  pretrain          = {C.POISON_CFG.pretrain_epochs} epochs")
     print(f"  noise_std         = {C.POISON_CFG.noise_std}")
     print(f"  layer             = {C.AC_LAYER}")
     print(f"  ac_n_components   = {n_components_list}")
+    print(f"  experiment_dir    = {C.EXPERIMENT_DIR}")
     print("=" * 60)
 
     # ── Steps 1–5: run once ───────────────────────────────────────────────
@@ -253,5 +272,8 @@ if __name__ == "__main__":
             f"{ac_r.overall_accuracy:>8.2%}  {ac_r.overall_f1:>8.2%}  "
             f"{raw_r.overall_accuracy:>8.2%}  {raw_r.overall_f1:>8.2%}"
         )
-    print(f"\n  Results saved to: {C.RESULTS_DIR}")
+    print(f"\n  Experiment saved to: {C.EXPERIMENT_DIR}")
     print("=" * 60)
+
+    sys.stdout = sys.__stdout__
+    _log_file.close()

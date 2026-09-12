@@ -1,8 +1,7 @@
 # Data and generated files — never commit these
-datasets/
+data_raw/
 cache/
-checkpoints/
-results/
+outputs/
 
 # Python
 __pycache__/
@@ -43,7 +42,6 @@ env/
 
 # Ignore log files
 *.log
-logs/
 
 models/
 

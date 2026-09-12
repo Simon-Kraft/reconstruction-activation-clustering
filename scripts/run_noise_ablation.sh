@@ -10,7 +10,7 @@
 
 set -e
 
-LOGS_DIR="logs/noise_ablation"
+LOGS_DIR="outputs/suites/noise_ablation"
 mkdir -p "$LOGS_DIR"
 
 SUMMARY_LOG="$LOGS_DIR/summary.log"
@@ -166,7 +166,7 @@ python - <<'PYEOF' | tee -a "$SUMMARY_LOG"
 import re
 import numpy as np
 
-SUMMARY_LOG = "logs/noise_ablation/summary.log"
+SUMMARY_LOG = "outputs/suites/noise_ablation/summary.log"
 N_COMPS = [2, 4, 6, 10]
 
 with open(SUMMARY_LOG) as f:

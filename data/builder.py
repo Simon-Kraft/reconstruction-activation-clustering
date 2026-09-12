@@ -15,10 +15,10 @@ Usage:
     from data.builder import PoisonConfig, build_poisoned_dataset
 
     cfg = PoisonConfig(
-        dataset_name   = 'MNIST',
-        poison_rate    = 0.10,
+        dataset_name    = 'MNIST',
+        poison_rate     = 0.10,
         pretrain_epochs = 0,
-        dlg_iterations  = 300,
+        recon_iterations = 300,
         subsample_rate  = 0.2,
     )
     mixed = build_poisoned_dataset(cfg, model, device)
@@ -37,7 +37,7 @@ from typing import Optional
 
 from data.loader import load_dataset, DatasetInfo
 from data.trigger import TriggerConfig
-from data.reconstruction import ReconConfig, intercept_gradients, reconstruct, reconstruct_dlg, compute_psnr
+from data.reconstruction import ReconConfig, intercept_gradients, reconstruct, compute_psnr
 
 
 # ---------------------------------------------------------------------------
@@ -58,34 +58,31 @@ class PoisonConfig:
         dataset_name:       'MNIST', 'FashionMNIST', 'CIFAR10'
         poison_rate:        fraction of EACH class to poison (0.0–1.0)
         pretrain_epochs:    epochs to pretrain reconstruction model (0 = random)
-        dlg_iterations:     Geiping optimisation steps per image
-        dlg_lr:             Adam learning rate for reconstruction
-        dlg_tv_weight:      total variation regularisation weight
+        recon_iterations:   Geiping optimisation steps per image
+        recon_lr:           Adam learning rate for reconstruction
+        recon_tv_weight:    total variation regularisation weight
         noise_std:              Gaussian noise std on intercepted gradients
         subsample_rate:         fraction of full dataset to use (1.0 = full)
         data_dir:               directory for torchvision downloads
         seed:                   random seed
         reconstruction_method:  'geiping' = cosine inversion (Geiping 2020),
-                                'dlg'     = L2 gradient inversion (Zhu 2019),
                                 'badnets' = no reconstruction, raw image + trigger
-        replace_originals:  if True, remove the original source images that
-                            were selected for poisoning from the clean set,
-                            so the poisoned reconstruction replaces rather
-                            than appends. Results in exactly poison_rate %
-                            of the final dataset being poisoned.
+
+    Poisoned reconstructions are always appended to the clean training set
+    (matching Chen et al. 2018's setup) rather than replacing the source
+    images they were reconstructed from.
     """
     dataset_name:       str
     poison_rate:        float
     pretrain_epochs:    int   = 0
-    dlg_iterations:     int   = 300
-    dlg_lr:             float = 0.1
-    dlg_tv_weight:      float = 1e-4
+    recon_iterations:   int   = 300
+    recon_lr:           float = 0.1
+    recon_tv_weight:    float = 1e-4
     noise_std:          float = 0.0
     subsample_rate:     float = 1.0
-    data_dir:           str   = 'data/'
+    data_dir:           str   = 'data_raw/'
     seed:                   int   = 42
     reconstruction_method:  str   = 'geiping'
-    replace_originals:      bool  = False
     verbose:                bool  = False
 
     def __post_init__(self):
@@ -97,7 +94,7 @@ class PoisonConfig:
             raise ValueError(
                 f"subsample_rate must be in (0, 1], got {self.subsample_rate}"
             )
-        valid = {'geiping', 'dlg', 'badnets'}
+        valid = {'geiping', 'badnets'}
         if self.reconstruction_method not in valid:
             raise ValueError(
                 f"reconstruction_method must be one of {valid}, "
@@ -115,8 +112,7 @@ class PoisonConfig:
             f"rate={self.poison_rate:.0%}  "
             f"pretrain={self.pretrain_epochs}ep  "
             f"noise_std={self.noise_std}  "
-            f"subsample={self.subsample_rate:.0%}  "
-            f"replace_originals={self.replace_originals}"
+            f"subsample={self.subsample_rate:.0%}"
         )
 
 
@@ -277,11 +273,9 @@ def _reconstruct_pair(
     """
     Reconstruct and poison one (source → target) pair.
 
-    Returns six parallel lists:
-        recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs, psnr_values
+    Returns five parallel lists:
+        recon_imgs, recon_labels, recon_flags, recon_orig, psnr_values
     psnr_values contains one PSNR (dB) per reconstructed image (empty for badnets).
-    poison_idxs contains the original dataset indices selected for poisoning —
-    used by the caller to exclude them from the clean set when replace_originals=True.
     """
     source_in_keep   = [
         i for i, l in zip(keep_list, kept_labels)
@@ -320,16 +314,6 @@ def _reconstruct_pair(
                 dev              = device,
             )
             psnr_values.append(compute_psnr(recon_img.squeeze(0).cpu(), img, data_range))
-        elif reconstruction_method == 'dlg':
-            grads = intercept_gradients(model, img, int(label), dev=device)
-            recon_img, _ = reconstruct_dlg(
-                model            = model,
-                target_gradients = grads,
-                img_shape        = torch.Size([1, *img.shape]),
-                cfg              = recon_cfg,
-                dev              = device,
-            )
-            psnr_values.append(compute_psnr(recon_img.squeeze(0).cpu(), img, data_range))
         else:
             recon_img = img.clone().reshape([1, *img.shape])
 
@@ -340,7 +324,7 @@ def _reconstruct_pair(
         recon_flags.append(True)
         recon_orig.append(img)
 
-    return recon_imgs, recon_labels, recon_flags, recon_orig, poison_idxs, psnr_values
+    return recon_imgs, recon_labels, recon_flags, recon_orig, psnr_values
 
 
 # ---------------------------------------------------------------------------
@@ -356,14 +340,8 @@ def build_poisoned_dataset(
     """
     Build a rotating-poison mixed dataset matching Chen et al. (2018).
 
-    If cfg.replace_originals is False (default):
-        Poisoned copies are appended — original source images remain in
-        the clean set. This matches Chen et al.'s original setup.
-
-    If cfg.replace_originals is True:
-        The original source images selected for poisoning are removed from
-        the clean set and replaced by their reconstructed+triggered versions.
-        This means exactly poison_rate % of the final dataset is poisoned.
+    Poisoned copies are appended — original source images remain in the
+    clean set, matching Chen et al.'s original setup.
 
     Args:
         cfg:        PoisonConfig
@@ -397,9 +375,9 @@ def build_poisoned_dataset(
 
     # --- Step 3: Build reconstruction config ------------------------------
     recon_cfg = ReconConfig(
-        iterations  = cfg.dlg_iterations,
-        lr          = cfg.dlg_lr,
-        tv_weight   = cfg.dlg_tv_weight,
+        iterations  = cfg.recon_iterations,
+        lr          = cfg.recon_lr,
+        tv_weight   = cfg.recon_tv_weight,
         noise_std   = cfg.noise_std,
         clamp_range = dataset_info.clamp_range,
         verbose     = cfg.verbose,
@@ -437,14 +415,14 @@ def build_poisoned_dataset(
 
     rng = np.random.default_rng(cfg.seed)
 
-    # Run reconstruction for all pairs first, collecting poisoned indices
+    # Run reconstruction for all pairs first
     all_r_imgs, all_r_labels  = [], []
     all_r_flags, all_r_orig   = [], []
-    all_r_src, poisoned_idxs  = [], set()
+    all_r_src                 = []
     all_psnr_values           = []
 
     for source_class, target_class in pairs:
-        r_imgs, r_labels, r_flags, r_orig, p_idxs, psnr_vals = _reconstruct_pair(
+        r_imgs, r_labels, r_flags, r_orig, psnr_vals = _reconstruct_pair(
             source_class          = source_class,
             target_class          = target_class,
             poison_rate           = cfg.poison_rate,
@@ -463,15 +441,13 @@ def build_poisoned_dataset(
         all_r_flags.extend(r_flags)
         all_r_orig.extend(r_orig)
         all_r_src.extend([source_class] * len(r_imgs))
-        poisoned_idxs.update(p_idxs)
         all_psnr_values.extend(psnr_vals)
 
-        mode = "replacing" if cfg.replace_originals else "appending"
         psnr_str = (
             f"  PSNR={np.mean(psnr_vals):.2f} dB" if psnr_vals else ""
         )
         print(f"  {source_class}→{target_class}: "
-              f"{len(r_imgs)} poisoned samples ({mode}){psnr_str}")
+              f"{len(r_imgs)} poisoned samples (appending){psnr_str}")
 
     if all_psnr_values:
         print(f"\n  Reconstruction PSNR — "
@@ -484,9 +460,6 @@ def build_poisoned_dataset(
     data, labels, is_poisoned, source_labels, orig_images = [], [], [], [], []
 
     for i in keep_list:
-        # Skip originals that were selected for poisoning if replace mode
-        if cfg.replace_originals and i in poisoned_idxs:
-            continue
         img, lbl = train_raw[i]
         data.append(img)
         labels.append(int(lbl))

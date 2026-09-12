@@ -10,7 +10,7 @@
 
 set -e
 
-LOGS_DIR="logs/fashionmnist"
+LOGS_DIR="outputs/suites/fashionmnist"
 mkdir -p "$LOGS_DIR"
 
 SUMMARY_LOG="$LOGS_DIR/summary.log"
@@ -129,13 +129,12 @@ def load_f1(method, rate, seed, k):
         f"_r{rate}"
         f"_sub{SUBSAMPLE}"
         f"_recon{method}"
-        f"_replace0"
         f"_noise0.0"
         f"_pre0"
         f"_seed{seed}"
     )
-    ac_path  = f"results/{exp_id}/n_components_{k}/ac_detection_results.json"
-    raw_path = f"results/{exp_id}/n_components_{k}/raw_detection_results.json"
+    ac_path  = f"outputs/{exp_id}/results/n_components_{k}/ac_detection_results.json"
+    raw_path = f"outputs/{exp_id}/results/n_components_{k}/raw_detection_results.json"
     if not os.path.exists(ac_path):
         return None, None
     with open(ac_path)  as f: ac_data  = json.load(f)

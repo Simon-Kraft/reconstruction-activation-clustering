@@ -2,13 +2,13 @@
 """
 scripts/generate_latex_tables.py — Generate LaTeX result tables from summary logs.
 
-Reads logs/mnist/summary.log and logs/fashionmnist/summary.log, averages
-metrics across seeds, and produces one LaTeX table per n_components value.
+Reads outputs/suites/mnist/summary.log and outputs/suites/fashionmnist/summary.log,
+averages metrics across seeds, and produces one LaTeX table per n_components value.
 Bold marks the better of Ours vs Baseline for each cell.
 
 Usage:
     python scripts/generate_latex_tables.py              # print all tables
-    python scripts/generate_latex_tables.py --out results/tables/
+    python scripts/generate_latex_tables.py --out outputs/tables/
     python scripts/generate_latex_tables.py --k 10      # single k value
 """
 
@@ -19,8 +19,8 @@ import sys
 import numpy as np
 
 SUMMARY_LOGS = {
-    'MNIST':        'logs/mnist/summary.log',
-    'FashionMNIST': 'logs/fashionmnist/summary.log',
+    'MNIST':        'outputs/suites/mnist/summary.log',
+    'FashionMNIST': 'outputs/suites/fashionmnist/summary.log',
 }
 
 RATES   = ['0.10', '0.15', '0.33']
