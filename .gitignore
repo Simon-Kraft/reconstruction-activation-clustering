@@ -1,5 +1,4 @@
 # Data and generated files — never commit these
-data_raw/
 cache/
 outputs/
 
@@ -18,8 +17,8 @@ __pycache__/
 # Plots and outputs
 *.png
 *.jpg
-*.jpeg
 *.pdf
+*.jpeg
 *.json
 
 # Jupyter
@@ -31,6 +30,7 @@ __pycache__/
 *.env
 recon-ac/
 venv/
+.venv/
 env/
 
 # macOS
@@ -46,3 +46,5 @@ env/
 models/
 
 plot_*.py
+
+review/

@@ -80,7 +80,7 @@ class PoisonConfig:
     recon_tv_weight:    float = 1e-4
     noise_std:          float = 0.0
     subsample_rate:     float = 1.0
-    data_dir:           str   = 'data_raw/'
+    data_dir:           str   = 'outputs/data_raw/'
     seed:                   int   = 42
     reconstruction_method:  str   = 'geiping'
     verbose:                bool  = False
