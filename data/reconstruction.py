@@ -29,7 +29,7 @@ import math
 import torch
 import torch.nn.functional as F
 from dataclasses import dataclass, field
-from typing import List, Tuple, Optional
+from typing import Callable, List, Tuple, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +55,12 @@ class ReconConfig:
         use_soft_label:  jointly optimise a soft label vector alongside the
                          image. Recommended — improves convergence.
         verbose:         print loss every 10% of iterations
+        lr_decay:        if True, decay the Adam learning rate by 10x at
+                         3/8, 5/8, and 7/8 of iterations, matching Geiping
+                         et al.'s published schedule (Appendix C). Off by
+                         default — opt-in, experimental; the production
+                         pipeline (data/builder.py) does not set this, so
+                         existing behaviour/results are unaffected.
     """
     iterations:     int   = 300
     lr:             float = 0.1
@@ -63,6 +69,7 @@ class ReconConfig:
     clamp_range:    Tuple[float, float] = (-0.4242, 2.8215)
     use_soft_label: bool  = True
     verbose:        bool  = False
+    lr_decay:       bool  = False
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +210,7 @@ def reconstruct(
     img_shape:        torch.Size,
     cfg:              ReconConfig,
     dev:              Optional[torch.device] = None,
+    callback:         Optional[Callable[[int, torch.Tensor, float], None]] = None,
 ) -> Tuple[torch.Tensor, float]:
     """
     Reconstruct an image from intercepted gradients using Geiping (2020).
@@ -222,6 +230,10 @@ def reconstruct(
                           e.g. torch.Size([1, 1, 28, 28]) for one MNIST image
         cfg:              ReconConfig with all reconstruction hyperparameters
         dev:              device (inferred from model if None)
+        callback:         optional fn(iteration, dummy_img_detached, loss_val)
+                          called every iteration — for diagnostics only (e.g.
+                          tracking SSIM/PSNR against ground truth over time).
+                          Never called by the production pipeline.
 
     Returns:
         (reconstructed_image, final_loss)
@@ -251,6 +263,15 @@ def reconstruct(
 
     # Adam with both dummy image and soft label as parameters
     optimizer = torch.optim.Adam([dummy_img, dummy_label], lr=cfg.lr)
+
+    # Optional step-size decay (Geiping et al., Appendix C): 10x drop at
+    # 3/8, 5/8, 7/8 of iterations. Opt-in via cfg.lr_decay — see ReconConfig.
+    scheduler = None
+    if cfg.lr_decay:
+        milestones = [int(cfg.iterations * frac) for frac in (0.375, 0.625, 0.875)]
+        scheduler  = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=milestones, gamma=0.1
+        )
 
     best_loss = float('inf')
     best_img  = dummy_img.detach().clone()
@@ -288,6 +309,8 @@ def reconstruct(
                 dummy_img.grad.data = dummy_img.grad.data.sign()
 
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
 
         # Clamp image to valid normalised pixel range after every step
         with torch.no_grad():
@@ -304,6 +327,9 @@ def reconstruct(
         ):
             print(f"  iter {it+1:4d}/{cfg.iterations}  "
                   f"loss={loss_val:.6f}  best={best_loss:.6f}")
+
+        if callback is not None:
+            callback(it, dummy_img.detach(), loss_val)
 
     recon = best_img.clamp(cfg.clamp_range[0], cfg.clamp_range[1])
     return recon, best_loss

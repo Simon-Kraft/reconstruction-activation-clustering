@@ -49,6 +49,17 @@ AC_METHOD       = 'ica'
 # ---------------------------------------------------------------------------
 SHOW_PLOTS = False
 
+# If True, PaperCNN is built with differentiable_pool=True (SoftMaxPool2d
+# instead of real nn.MaxPool2d) for BOTH the reconstruction model and the
+# backdoor-training model, so the two stay architecturally identical to
+# each other (matching data/reconstruction.py's "same architecture"
+# assumption). Set automatically by pipeline.py based on --device: True
+# only when --device mps is explicitly requested, since MPS cannot run
+# gradient-inversion's double-backward through real max pooling. Leave as
+# False here — CPU/CUDA runs (the default) are completely unaffected and
+# use the exact same architecture as before.
+USE_DIFFERENTIABLE_POOL = False
+
 # ---------------------------------------------------------------------------
 # Defaults — overridden by argparse in pipeline.py
 # ---------------------------------------------------------------------------
@@ -62,6 +73,7 @@ POISON_CFG = PoisonConfig(
     recon_iterations   = 75,
     recon_lr           = 0.1,
     recon_tv_weight    = 1e-4,
+    recon_lr_decay     = False,
     noise_std          = 0.0,
     subsample_rate     = 0.25,
     data_dir           = RAW_DATA_DIR,

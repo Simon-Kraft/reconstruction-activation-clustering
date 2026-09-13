@@ -41,6 +41,12 @@ def parse_args():
                         help='Gaussian noise std on intercepted gradients')
     parser.add_argument('--pretrain_epochs',   type=int,   default=None,
                         help='Epochs to pretrain reconstruction model')
+    parser.add_argument('--tv_weight',         type=float, default=None,
+                        help=f'Total-variation weight for Geiping reconstruction '
+                             f'(default: {C.POISON_CFG.recon_tv_weight})')
+    parser.add_argument('--iterations',        type=int,   default=None,
+                        help=f'Optimisation steps for Geiping reconstruction '
+                             f'(default: {C.POISON_CFG.recon_iterations})')
     parser.add_argument('--reconstruction_method', type=str, default=None,
                         choices=['geiping', 'badnets'],
                         help='geiping = cosine-similarity gradient inversion, badnets = no reconstruction')
@@ -52,6 +58,19 @@ def parse_args():
                         help='Comma-separated list of ICA/PCA components to evaluate, e.g. "2,4,6,10"')
     parser.add_argument('--no_plots',          action='store_true',
                         help='Suppress all visualisation')
+    parser.add_argument('--lr_decay',          action='store_true',
+                        help="Decay the reconstruction learning rate 10x at 3/8, 5/8, "
+                             "7/8 of iterations (Geiping et al., Appendix C). Off by default.")
+    parser.add_argument('--device',            type=str,   default='auto',
+                        choices=['auto', 'cpu', 'mps', 'cuda'],
+                        help="Compute device. 'auto' = cuda if available else cpu "
+                             "(unchanged default behaviour). 'mps' explicitly opts into "
+                             "Apple Silicon GPU acceleration — since MPS cannot run "
+                             "gradient-inversion's double-backward through real max "
+                             "pooling, choosing 'mps' automatically switches PaperCNN "
+                             "(both the reconstruction model and the backdoor model) to "
+                             "a differentiable soft-max-pool approximation. CPU/CUDA "
+                             "runs are unaffected and use the exact architecture as before.")
     return parser.parse_args()
 
 
@@ -74,7 +93,9 @@ def step_load_dataset():
 # ---------------------------------------------------------------------------
 def step_build_dataset(dataset_info):
     print("\n── Step 2: Build rotating poisoned dataset ──")
-    model = PaperCNN.for_dataset(dataset_info).to(C.DEVICE)
+    model = PaperCNN.for_dataset(
+        dataset_info, differentiable_pool=C.USE_DIFFERENTIABLE_POOL
+    ).to(C.DEVICE)
     mixed = build_poisoned_dataset(
         cfg        = C.POISON_CFG,
         model      = model,
@@ -89,7 +110,9 @@ def step_build_dataset(dataset_info):
 # ---------------------------------------------------------------------------
 def step_train(mixed_dataset, dataset_info, test_loader):
     print("\n── Step 3: Train backdoor model ──")
-    model = PaperCNN.for_dataset(dataset_info).to(C.DEVICE)
+    model = PaperCNN.for_dataset(
+        dataset_info, differentiable_pool=C.USE_DIFFERENTIABLE_POOL
+    ).to(C.DEVICE)
 
     if os.path.exists(C.BACKDOOR_MODEL_PATH):
         print("  Loading cached model to save time")
@@ -180,10 +203,34 @@ if __name__ == "__main__":
     if args.subsample_rate        is not None: C.POISON_CFG.subsample_rate        = args.subsample_rate
     if args.noise_std             is not None: C.POISON_CFG.noise_std             = args.noise_std
     if args.pretrain_epochs       is not None: C.POISON_CFG.pretrain_epochs       = args.pretrain_epochs
+    if args.tv_weight             is not None: C.POISON_CFG.recon_tv_weight       = args.tv_weight
+    if args.iterations            is not None: C.POISON_CFG.recon_iterations      = args.iterations
     if args.reconstruction_method is not None: C.POISON_CFG.reconstruction_method = args.reconstruction_method
     if args.layer                 is not None: C.AC_LAYER   = args.layer
     if args.seed                  is not None: C.SEED       = args.seed
     if args.no_plots:                          C.SHOW_PLOTS = False
+    if args.lr_decay:                          C.POISON_CFG.recon_lr_decay = True
+
+    # ── Resolve device ──────────────────────────────────────────────────────
+    # 'auto' preserves the original default exactly (cuda if available, else
+    # cpu) — MPS is never silently auto-selected, only via explicit --device
+    # mps. Choosing mps switches PaperCNN to the differentiable-pool variant
+    # for both the reconstruction model and the backdoor model, so the two
+    # stay architecturally identical to each other (just a different pooling
+    # op than the CPU/CUDA default).
+    if args.device == 'auto':
+        pass  # C.DEVICE already computed at import time (cuda > cpu)
+    elif args.device == 'mps':
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("--device mps requested but MPS is not available on this machine.")
+        C.DEVICE = torch.device('mps')
+    elif args.device == 'cuda':
+        if not torch.cuda.is_available():
+            raise RuntimeError("--device cuda requested but CUDA is not available on this machine.")
+        C.DEVICE = torch.device('cuda')
+    else:
+        C.DEVICE = torch.device('cpu')
+    C.USE_DIFFERENTIABLE_POOL = (C.DEVICE.type == 'mps')
 
     n_components_list = (
         [int(x) for x in args.ac_n_components.split(',')]
@@ -201,6 +248,14 @@ if __name__ == "__main__":
     # delete, and all runs for one dataset sit next to each other. The
     # reconstruction method leads the exp_id so geiping/badnets runs for
     # the same dataset sort and group together in a folder listing.
+    # lr_decay, softpool, tv_weight and iterations are only appended when
+    # explicitly overridden on the CLI, so existing exp_id strings / cached
+    # outputs for ordinary runs that don't touch these flags are completely
+    # unchanged and still hit their caches.
+    _lr_decay_tag = "_lrdecay1" if C.POISON_CFG.recon_lr_decay   else ""
+    _softpool_tag = "_softpool1" if C.USE_DIFFERENTIABLE_POOL    else ""
+    _tv_tag       = f"_tv{args.tv_weight}"   if args.tv_weight  is not None else ""
+    _iter_tag     = f"_iter{args.iterations}" if args.iterations is not None else ""
     _EXP_ID = (
         f"{C.POISON_CFG.reconstruction_method}"
         f"_rotating"
@@ -208,6 +263,10 @@ if __name__ == "__main__":
         f"_sub{C.POISON_CFG.subsample_rate}"
         f"_noise{C.POISON_CFG.noise_std}"
         f"_pre{C.POISON_CFG.pretrain_epochs}"
+        f"{_tv_tag}"
+        f"{_iter_tag}"
+        f"{_lr_decay_tag}"
+        f"{_softpool_tag}"
         f"_seed{C.SEED}"
     )
     C.EXPERIMENT_DIR      = os.path.join(C.OUTPUTS_DIR, C.DATASET_NAME, _EXP_ID)
@@ -239,6 +298,10 @@ if __name__ == "__main__":
     print(f"  reconstruction    = {C.POISON_CFG.reconstruction_method}")
     print(f"  pretrain          = {C.POISON_CFG.pretrain_epochs} epochs")
     print(f"  noise_std         = {C.POISON_CFG.noise_std}")
+    print(f"  tv_weight         = {C.POISON_CFG.recon_tv_weight}")
+    print(f"  iterations        = {C.POISON_CFG.recon_iterations}")
+    print(f"  lr_decay          = {C.POISON_CFG.recon_lr_decay}")
+    print(f"  differentiable_pool = {C.USE_DIFFERENTIABLE_POOL}")
     print(f"  layer             = {C.AC_LAYER}")
     print(f"  ac_n_components   = {n_components_list}")
     print(f"  experiment_dir    = {C.EXPERIMENT_DIR}")

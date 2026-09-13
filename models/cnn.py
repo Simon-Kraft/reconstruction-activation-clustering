@@ -31,6 +31,55 @@ from data.loader import DatasetInfo
 
 
 # ---------------------------------------------------------------------------
+# Differentiable max-pool substitute (opt-in — see PaperCNN's
+# differentiable_pool flag; NOT used by default anywhere in this codebase)
+# ---------------------------------------------------------------------------
+
+class SoftMaxPool2d(nn.Module):
+    """
+    A smooth stand-in for nn.MaxPool2d, via LogSumExp over each pooling
+    window: pool(x) = temperature * log(sum(exp(x / temperature))).
+
+    Why this exists: nn.MaxPool2d's backward is not supported for a second
+    backward pass (create_graph=True) on every device — notably, PyTorch's
+    MPS backend raises "max_pool2d ... is not infinitely differentiable"
+    for it, which breaks gradient-inversion attacks that differentiate
+    through the gradient itself (data/reconstruction.py's reconstruct()).
+    This op is differentiable to second order everywhere, so it unblocks
+    running that attack on MPS.
+
+    This is NOT numerically identical to true max pooling — see the
+    approximation-error note below — so treat any model built with
+    differentiable_pool=True as a distinct architecture from the default
+    PaperCNN, not a drop-in stand-in with guaranteed-identical outputs.
+
+    Approximation error: for a pooling window of k elements, this
+    satisfies max(window) <= pool(window) <= max(window) + temperature *
+    log(k). For kernel_size=2 (k=4 per 2D window) and temperature=0.01
+    (the default here), the worst-case error is bounded by
+    ~0.01 * log(4) ≈ 0.014 in normalised activation units — small, but
+    not zero, and it also changes how gradients are distributed across
+    the pooling window (softmax-weighted across all elements, rather than
+    routed entirely to the single argmax as true max pooling does).
+    Lowering temperature tightens this bound but pushes exp() towards
+    numerical overflow/underflow, so there is a real floor on how close
+    this can get to true max pooling in practice, not just in theory.
+    """
+
+    def __init__(self, kernel_size: int = 2, stride: int = 2, temperature: float = 0.01):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride      = stride
+        self.temperature = temperature
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, _, _ = x.shape
+        patches = x.unfold(2, self.kernel_size, self.stride).unfold(3, self.kernel_size, self.stride)
+        patches = patches.contiguous().view(b, c, patches.size(2), patches.size(3), -1)
+        return self.temperature * torch.logsumexp(patches / self.temperature, dim=-1)
+
+
+# ---------------------------------------------------------------------------
 # Base class — hook infrastructure
 # ---------------------------------------------------------------------------
 
@@ -103,17 +152,28 @@ class PaperCNN(BaseACModel):
     Supports any dataset via n_channels and n_classes arguments.
     Use PaperCNN.for_dataset(dataset_info) as the preferred constructor
     so the pipeline never hardcodes channel or class counts.
+
+    differentiable_pool: if True, uses SoftMaxPool2d instead of real
+        nn.MaxPool2d — needed to run gradient-inversion reconstruction on
+        MPS (see SoftMaxPool2d's docstring for why, and for the caveat
+        that it is an approximation, not an identical operation). Default
+        False everywhere in this codebase's production pipeline
+        (data/builder.py never sets it), so existing results are
+        unaffected; it exists for diagnostic scripts like
+        reconstruct_cifar10.py.
     """
 
     def __init__(
         self,
-        n_channels: int = 1,
-        n_classes:  int = 10,
-        activation: str = 'relu',
+        n_channels:          int  = 1,
+        n_classes:           int  = 10,
+        activation:          str  = 'relu',
+        differentiable_pool: bool = False,
     ):
         super().__init__(activation)
 
-        self.pool  = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool  = SoftMaxPool2d(kernel_size=2, stride=2) if differentiable_pool \
+                     else nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv1 = nn.Conv2d(n_channels, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32,         64, kernel_size=3, padding=1)
 
@@ -149,7 +209,7 @@ class PaperCNN(BaseACModel):
         return self.fc2(x)
 
     @classmethod
-    def for_dataset(cls, dataset_info: DatasetInfo) -> 'PaperCNN':
+    def for_dataset(cls, dataset_info: DatasetInfo, differentiable_pool: bool = False) -> 'PaperCNN':
         """
         Preferred constructor — reads n_channels and n_classes from
         a DatasetInfo object so nothing is hardcoded in the pipeline.
@@ -159,6 +219,7 @@ class PaperCNN(BaseACModel):
             model        = PaperCNN.for_dataset(dataset_info)
         """
         return cls(
-            n_channels = dataset_info.n_channels,
-            n_classes  = dataset_info.n_classes,
+            n_channels          = dataset_info.n_channels,
+            n_classes           = dataset_info.n_classes,
+            differentiable_pool = differentiable_pool,
         )

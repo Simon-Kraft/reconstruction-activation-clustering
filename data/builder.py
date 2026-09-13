@@ -61,6 +61,9 @@ class PoisonConfig:
         recon_iterations:   Geiping optimisation steps per image
         recon_lr:           Adam learning rate for reconstruction
         recon_tv_weight:    total variation regularisation weight
+        recon_lr_decay:     if True, decay the reconstruction learning rate
+                            10x at 3/8, 5/8, 7/8 of iterations (Geiping et
+                            al., Appendix C). Off by default.
         noise_std:              Gaussian noise std on intercepted gradients
         subsample_rate:         fraction of full dataset to use (1.0 = full)
         data_dir:               directory for torchvision downloads
@@ -78,6 +81,7 @@ class PoisonConfig:
     recon_iterations:   int   = 300
     recon_lr:           float = 0.1
     recon_tv_weight:    float = 1e-4
+    recon_lr_decay:     bool  = False
     noise_std:          float = 0.0
     subsample_rate:     float = 1.0
     data_dir:           str   = 'outputs/data_raw/'
@@ -378,6 +382,7 @@ def build_poisoned_dataset(
         iterations  = cfg.recon_iterations,
         lr          = cfg.recon_lr,
         tv_weight   = cfg.recon_tv_weight,
+        lr_decay    = cfg.recon_lr_decay,
         noise_std   = cfg.noise_std,
         clamp_range = dataset_info.clamp_range,
         verbose     = cfg.verbose,
